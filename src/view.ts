@@ -10,6 +10,9 @@ export function renderIndex(query: string | null, result?: any) {
 					.error {
 						color: red;
 					}
+					.answer.false {
+						color: crimson;
+					}
 				</style>
 			</head>
 			<body>
@@ -41,26 +44,41 @@ function renderAnswers(result: any): HTML {
 		return html``;
 	}
 
-	if (result.event == "error") {
+	switch (result.event) {
+	case "error":
 		return html`
 			<ul>
 				<li>
-					<b class="error">Error</b>: ${renderTerm(result.data)}
+					<b class="answer error">Error</b>: ${renderTerm(result.data)}
 				</li>
+			</ul>
+		`;
+	case "failure":
+		return html`
+			<ul>
+				<li>
+					<b class="answer false">no</b>
+				</li>
+			</ul>
+		`;
+	case "success":
+		return html`
+			<ul>
+				${result?.data?.map(renderAnswer)}
 			</ul>
 		`;
 	}
 
-	const results = result?.data || {};
-	return html`
-		<ul>
-			${results?.map(renderAnswer)}
-		</ul>
-	`;
+	return html`unknown event: ${result.event}`;
 }
 
 function renderAnswer(x: Record<string, any>): HTML {
-	console.log(x);
+	const entries = Object.entries(x);
+
+	if (entries.length == 0) {
+		return html`<li><b class="answer true">yes</b></fli>`;
+	}
+
 	/* eslint-disable indent */
 	return html`
 		<li>
