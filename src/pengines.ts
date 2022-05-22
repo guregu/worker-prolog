@@ -14,7 +14,7 @@ export interface PengineRequest {
 	src_url: string,
 	destroy: boolean,
 	stop: boolean,
-	template: string,
+	template: pl.type.Value,
 	format: string,
 	application: string,
 }
@@ -116,7 +116,7 @@ export class PrologDO {
 
 		const contentType = request.headers.get("Content-Type")?.toLowerCase() || "";
 		if (contentType.includes("application/json")) {
-			msg = parseAskJSON(await request.json());
+			msg = await parseAskJSON(sesh, await request.json());
 		} else if (contentType.includes("prolog")) {
 			msg = await parseAsk(sesh, await request.text());
 		} else {
@@ -179,12 +179,16 @@ export class PrologDO {
 			// console.log("after consult", msg.src_url, ":\n", sesh.session.modules)
 		}
 
+		console.log("Ask:", msg);
+
 		const answers = sesh.query(msg.ask);
 		const results = [];
 		const links = [];
 		let projection: any[] = [];
-		let queryGoal;
+		let queryGoal: pl.type.Value | undefined;
 		for await (const [goal, answer] of answers) {
+			const tmpl: pl.type.Value = msg.template ?? goal;
+
 			if (answer.indicator == "throw/1") {
 				if (format == "prolog") {
 					const idTerm = new pl.type.Term(id, []);
@@ -223,7 +227,7 @@ export class PrologDO {
 				queryGoal = goal;
 				projection = Object.keys(answer.links).map(x => new pl.type.Term(x, []));
 			}
-			const term = goal.apply(answer);
+			const term = tmpl.apply(answer);
 			results.push(term);
 			links.push(answer.links);
 		}
@@ -406,40 +410,44 @@ function serializeTerm(term: pl.type.Value): string | number | object | null {
 	};
 }
 
-function parseAskJSON(obj: any): Partial<PengineRequest> {
-	const resp = {
+async function parseAskJSON(sesh: Prolog, obj: any): Promise<Partial<PengineRequest>> {
+	const req: Partial<PengineRequest> = {
 		ask: fixQuery(obj.ask),
-		template: obj.template,
 		src_text: obj.src_text,
 		src_url: obj.src_url,
 		format: obj.format,
 		application: obj.application || DEFAULT_APPLICATION,
 	};
-	if (!resp.template) {
-		resp.template = resp.ask;
+	if (obj.template) {
+		req.template = await parseTerm(sesh, obj.template);
 	}
-	return resp;
+	return req;
 }
 
-async function parseAsk(sesh: Prolog, ask: string): Promise<Partial<PengineRequest>> {
-	// ask(('メンバー'(X, ['あ', 1, Y])), [destroy(false),src_text('\'メンバー\'(X, List) :- member(X, List).\n')])
-	ask = ask.trim();
-	if (ask.endsWith(".")) {
-		ask = ask.slice(0, -1);
+async function parseTerm(sesh: Prolog, raw: string): Promise<pl.type.Value> {
+	raw = raw.trim();
+	if (raw.endsWith(".")) {
+		raw = raw.slice(0, -1);
 	}
-	ask = `Ask = (${ask}).`;
-	const answers = sesh.query(ask);
+	raw = `ParsedTermXX = (${raw}).`;
+	const answers = sesh.query(raw);
 	let term;
 	for await (const [_, answer] of answers) {
 		if (answer.indicator == "throw/1") {
 			throw answer;
 		}
-		term = answer.links["Ask"];
+		term = answer.links["ParsedTermXX"];
 		break;
 	}
 	if (!term) {
-		throw "couldn't parse ask";
+		throw "couldn't parse raw";
 	}
+	return term;
+}
+
+async function parseAsk(sesh: Prolog, ask: string): Promise<Partial<PengineRequest>> {
+	// ask(('メンバー'(X, ['あ', 1, Y])), [destroy(false),src_text('\'メンバー\'(X, List) :- member(X, List).\n')])
+	const term = await parseTerm(sesh, ask) as pl.type.Term<number, string>;
 
 	switch (term.indicator) {
 	case "destroy/0":
@@ -456,9 +464,9 @@ async function parseAsk(sesh: Prolog, ask: string): Promise<Partial<PengineReque
 		ask: fixQuery(term.args[0].toString({ session: sesh.session, quoted: true, ignore_ops: false })),
 	};
 
-	let arg = term.args[1];
+	let arg: pl.type.Term<number, string> = term.args[1] as pl.type.Term<number, string>;
 	while (arg.indicator !== "[]/0") {
-		const lhs = arg.args[0];
+		const lhs = arg.args[0] as pl.type.Term<number, string>;
 		switch (lhs.indicator) {
 		case "src_text/1":
 			result.src_text = lhs.args[0].toJavaScript();
@@ -467,7 +475,7 @@ async function parseAsk(sesh: Prolog, ask: string): Promise<Partial<PengineReque
 			result.destroy = lhs.args[0].toJavaScript() == "true";
 			break;
 		case "template/1":
-			result.template = lhs.args[0].toString({ session: sesh.session, quoted: true, ignore_ops: false });
+			result.template = await parseTerm(sesh, lhs.args[0].body);
 			break;
 		case "format/1":
 			result.format = lhs.args[0].toJavaScript();
@@ -475,10 +483,12 @@ async function parseAsk(sesh: Prolog, ask: string): Promise<Partial<PengineReque
 		case "application/1":
 			result.application = lhs.args[0].toJavaScript();
 			break;
+		case undefined:
+			throw "invalid ask:" + ask;
 		default:
 			console.log("idk:", lhs.indicator);
 		}
-		arg = arg.args[1];
+		arg = arg.args[1] as pl.type.Term<number, string>;
 	}
 
 	return result;
@@ -504,6 +514,7 @@ function loadModule(mod: any, data: any) {
 
 
 export function prologResponse(text: string): Response {
+	console.log("respond:", text);
 	return new Response(text, {
 		status: 200, headers: {
 			"Content-Type": "application/x-prolog; charset=UTF-8"

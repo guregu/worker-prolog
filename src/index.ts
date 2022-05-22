@@ -14,6 +14,10 @@ export default {
 			return new Response("no", { status: 404 });
 		}
 
+		if (request.method == "OPTIONS") {
+			return new Response(null, {headers: corsHeaders});
+		}
+
 		const id = env.PROLOG_DO.idFromName("test_" + app);
 		const stub = env.PROLOG_DO.get(id);
 
@@ -44,6 +48,13 @@ export default {
 		const content = renderIndex(ask, result);
 		return new HTMLResponse(content);
 	},
+};
+
+const corsHeaders = {
+	"Access-Control-Allow-Origin": "*",
+	"Access-Control-Allow-Methods": "GET, HEAD, POST, OPTIONS",
+	"Access-Control-Max-Age": "86400",
+	"Allow": "GET, HEAD, POST, OPTIONS",
 };
 
 export { PrologDO } from "./pengines";
