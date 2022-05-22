@@ -1,0 +1,15 @@
+name = "prolog-test"
+main = "src/index.ts"
+compatibility_date = "2022-05-14"
+
+[[durable_objects.bindings]]
+    # The name of the binding used to refer to the Durable Object
+    name = "PROLOG_DO"
+    # The exported class name of the Durable Object
+    class_name = "PrologDO"
+    # The script where the Durable Object is defined (if it is external to this Worker)
+    script_name = ""
+
+[[migrations]]
+tag = "v1"  
+new_classes = ["PrologDO"] 
