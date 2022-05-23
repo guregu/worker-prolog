@@ -51,10 +51,56 @@ export class Prolog {
 
 }
 
-export function makeList(array: any[], cons = new pl.type.Term("[]", [])) {
+export function makeList(array: pl.type.Value[], cons = new pl.type.Term("[]", [])) {
 	let list = cons;
 	for (let i = array.length - 1; i >= 0; i--) {
 		list = new pl.type.Term(".", [array[i], list]);
 	}
 	return list;
+}
+
+// returns a Prolog term like: error(kind(detail), context(ctx)).
+export function makeError(kind: string, detail?: any, context?: any): pl.type.Term<number, "error"> {
+	const term: pl.type.Term<number, "error"> = new pl.type.Term("error", [
+		new pl.type.Term(kind, detail ? [toProlog(detail)] : []),
+	]);
+	if (context) {
+		const ctx = new pl.type.Term("context", [toProlog(context)]);
+		term.args.push(ctx);
+	}
+	return term;
+}
+
+export function toProlog(x: any): pl.type.Value {
+	switch (typeof x) {
+	case "number":
+		return new pl.type.Num(x);
+	case "string":
+		return new pl.type.Term(x, []);
+	case "undefined":
+		return new pl.type.Term("@", [new pl.type.Term("undefined", [])]);
+	default:
+		if (x === null) {
+			return new pl.type.Term("@", [new pl.type.Term("null", [])]);
+		}
+
+		if (x instanceof pl.type.Term || 
+				x instanceof pl.type.Num || 
+				x instanceof pl.type.Var) {
+			return x;
+		}
+		
+		// lists
+		if (Array.isArray(x)) {
+			const vals = x.map(v => toProlog(v));
+			return makeList(vals);
+		}
+
+		// hail mary
+		return new pl.type.Term("?", [new pl.type.Term(`${x}`, [])]);
+	}
+}
+
+export function functor(head: string, ...args: any[]): pl.type.Term<number, string> {
+	return new pl.type.Term(head, args.map(toProlog));
 }

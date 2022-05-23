@@ -1,48 +1,69 @@
-import {html, HTML} from "@worker-tools/html";
+import { html, HTML } from "@worker-tools/html";
+import { indexStyle } from "./style";
+
+const EXAMPLE_QUERIES = [
+	"member(X, [1, two, cool(prolog)]).",
+	// eslint-disable-next-line quotes
+	`permutation("dog", Permutation).`,
+	"between(1, 64, N), Square is N^2."
+];
+
+const SRC_TEXT_PLACEHOLDER = "% Prolog code goes here\nmortal(socrates).";
 
 export function renderIndex(query: string | null, params: URLSearchParams, result?: any) {
 	return html`
 		<!doctype html>
+		<meta name="viewport" content="width=device-width, initial-scale=1">
 		<html>
 			<head>
-				<title>Pengines on Workers</title>
-				<style>
-					.error {
-						color: red;
-					}
-					.answer.false {
-						color: crimson;
-					}
-					.time-taken {
-						color: gray;
-					}
-					#results table {
-						border-collapse: collapse;
-						margin: 1px;
-					}
-					#results th, #results td {
-						border: 1px solid lightgrey;
-						padding: 0.3em;
-					}
-
-					section {
-						margin: 3px;
-					}
-				</style>
+				<title>prolog.run</title>
+				${indexStyle}
 			</head>
 			<body>
-				<h1>Pengines</h1>
-				<form method="GET" action="">
-					${params.get("src_url") && html`<input type="hidden" value="${params.get("src_url")}"} name="src_url">`}
-					<label for="ask">?- </label> <input type="text" name="ask" id="ask"
-					${params.get("ask") && html`value="${params.get("ask")}"`}
-					placeholder="member(X, [1, 2, 3]).">
-					<input type="submit" value="Query">
-					${result?.time && html`<span class="time-taken" title="time taken">${result?.time}s</span>`}
-				</form>
+				<header>
+					<h1><a href="/">𝖕𝖗𝖔𝖑𝖔𝖌.𝖗𝖚𝖓</a></h1>
+				</header>
+
+				<section id="settings">
+					<details>
+						<summary>Advanced</summary>
+						<label for="application">Application:</label> <input type="text" placeholder="pengine_sandbox" id="application" name="application" form="query-form"> <br>
+						<label for="src_url">Source URL:</label> <input type="text" placeholder="http://example.com/test.pl" id="src_url" name="src_url" form="query-form" ${params.get("src_url") && html`value="${params.get("src_url")}"`}>
+					</details>
+				</section>
+
+				<section id="src">
+					${params.get("src_text") && html`<textarea id="src_text" name="src_text" form="query-form" placeholder="${SRC_TEXT_PLACEHOLDER}">${params.get("src_text")}</textarea>`}
+					${!params.get("src_text") && html`<textarea id="src_text" name="src_text" form="query-form" placeholder="${SRC_TEXT_PLACEHOLDER}"></textarea>`}
+				</section>
+
+				<section id="query">
+					<form method="GET" id="query-form">
+						${params.get("src_url") && html`<input type="hidden" value="${params.get("src_url")}"} name="src_url">`}
+						
+						<label for="ask">?- </label> <input type="text" name="ask" id="ask"
+						${params.get("ask") && html`value="${params.get("ask")}"`}
+						placeholder="member(X, [1, 2, 3]).">
+						<input type="submit" value="Query">
+					</form>
+				</section>
+
 				<section id="results">
+					${!result && html`
+						<main>
+							<h2>Welcome</h3>
+							<p>
+								Serverless Prolog (Pengines) under construction 👷
+							</p>
+							<h3>Example queries:</h3>
+							<ul>
+								${EXAMPLE_QUERIES.map(x => html`<li><a href="?ask=${x}">${x}</a></li>`)}
+							</ul>
+						</main>
+					`}
 					${renderAnswersTable(result)}
 				</section>
+
 				<br>
 				${result && html`
 					<details id="raw">
@@ -50,6 +71,11 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 						<code>${JSON.stringify(result)}</code>
 					</details>`}
 			</body>
+
+			<footer>
+				${typeof result?.time == "number" && html`<small>query time: ${result.time} sec</small>`}<br>
+				🙡🙠 <a href="https://github.com/guregu/worker-prolog" target="_blank">worker-prolog</a> 🙢🙣
+			</footer>
 		</html>
 	`;
 }
@@ -160,9 +186,6 @@ function renderAnswerTable(x: Record<string, any>): HTML {
 	`;
 	/* eslint-enable */
 }
-
-
-
 
 function renderTerm(x: any): HTML {
 	switch (typeof x) {

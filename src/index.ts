@@ -34,6 +34,7 @@ export default {
 			const req: Partial<PengineRequest> = {
 				ask: ask,
 				format: "json",
+				src_text: url.searchParams.get("src_text") ?? undefined,
 				src_url: url.searchParams.get("src_url") ?? undefined,
 			};
 			const resp = await stub.fetch(new Request("http://example.com/pengine/create", {

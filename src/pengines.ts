@@ -1,7 +1,8 @@
+/* eslint-disable no-case-declarations */
 import pl from "tau-prolog";
 import { JSONResponse } from "@worker-tools/json-fetch";
 
-import { Prolog, makeList } from "./prolog";
+import { Prolog, makeList, makeError, functor, toProlog } from "./prolog";
 
 export const DEFAULT_APPLICATION = "pengine_sandbox";
 
@@ -15,9 +16,180 @@ export interface PengineRequest {
 	destroy: boolean,
 	stop: boolean,
 	template: pl.type.Value,
-	format: string,
+	format: "json" | "prolog",
 	application: string,
 }
+
+export interface PengineResponse {
+	event: "create" | "destroy" | "success" | "failure" | "error",
+	id: string,
+	data?: PengineResponse | any,
+	more?: boolean,
+	projection?: string[],
+	time?: number, // time taken
+	code?: string, // error code
+	slave_limit?: number,
+	answer?: PengineResponse,
+}
+
+export interface ErrorEvent extends PengineResponse {
+	event: "error",
+	data: pl.type.Value,
+}
+
+export interface SuccessEvent extends PengineResponse {
+	event: "success",
+	more: boolean,
+	projection: string[],
+	time: number,
+	data: pl.type.Value[],
+	links: pl.type.Substitution[],
+	slave_limit?: number,
+}
+
+function formatResponse(format: "json" | "prolog", resp: PengineResponse, sesh?: Prolog): Response {
+	const json = format == "json";
+	const id = new pl.type.Term(resp.id, []);
+	const limit = functor("slave_limit", ARBITRARY_HIGH_NUMBER);
+
+	switch (resp.event) {
+	case "create":
+		if (json) {
+			if (resp.answer) {
+				resp.answer = makeJSONAnswer(resp.answer);
+			}
+			return new JSONResponse(resp);
+		}
+		if (resp.answer) {
+			// TODO: handle better
+			return makePrologResponse(makePrologAnswer(resp.answer, true), sesh);
+		}
+		const term = new pl.type.Term("create", [
+			id,
+			makeList([limit]),
+		]);
+		return makePrologResponse(term, sesh);
+	case "destroy":
+		// TODO
+		break;
+	case "success":
+		if (json) {
+			return new JSONResponse(makeJSONAnswer(resp));
+		}
+		return makePrologResponse(makePrologAnswer(resp, false), sesh);
+	case "failure":
+		if (json) {
+			return new JSONResponse(resp);
+		}
+		return makePrologResponse(new pl.type.Term("failure", [
+			id,
+			new pl.type.Num(resp.time, true),
+		]), sesh);
+	case "error":
+		if (json) {
+			// TODO: set "code"
+			resp.data = serializeTerm(toProlog(resp.data));
+			return new JSONResponse(resp);
+		}
+		return makePrologResponse(new pl.type.Term("error", [
+			id,
+			toProlog(resp.data),
+		]), sesh);						
+	}
+
+	throw `unknown event: ${resp.event}`;
+}
+
+function makePrologResponse(term: pl.type.Value, sesh?: Prolog): Response {
+	const text = term.toString({
+		quoted: true,
+		session: sesh?.session,
+		ignore_ops: false,
+	});
+	return prologResponse(text + ".\n");
+}
+
+function makeJSONAnswer(answer: SuccessEvent): PengineResponse {
+	const data = answer.links.map(function (link) {
+		const obj: Record<string, string | number | object | null> = {};
+		for (const key of Object.keys(link)) {
+			obj[key] = serializeTerm(link[key]);
+		}
+		return obj;
+	});
+	return {
+		"event": "success",
+		"data": data,
+		"id": answer.id,
+		"more": answer.more,
+		"projection": answer.projection.map(x => x.toJavaScript()),
+		"time": answer.time,
+		"slave_limit": ARBITRARY_HIGH_NUMBER,
+	};
+}
+
+function makePrologAnswer(resp: PengineResponse, sandwich: boolean): pl.type.Term<number, string> {
+	/* response format:
+		create(
+			ID,
+			[
+				slave_limit(LIMIT),
+				answer(
+					destroy(ID,
+						success(ID,
+							RESULTS,
+							PROJECTION,
+							TIME,
+							MORE
+						)
+					)
+				)
+			]
+		).
+	*/
+	const idTerm = new pl.type.Term(resp.id, []);
+
+	const success = new pl.type.Term("success", [
+		// id
+		idTerm,
+		// results
+		makeList(resp.data),
+		// projection
+		makeList(resp.projection),
+		// time taken
+		new pl.type.Num(resp.time, true),
+		// more
+		new pl.type.Term("false", []),
+	]);
+
+	if (!sandwich) {
+		return success;
+	}
+
+	return new pl.type.Term("create", [
+		// id
+		idTerm,
+		// data (list)
+		new pl.type.Term(".", [
+			// limit (required?)
+			new pl.type.Term("slave_limit", [new pl.type.Num(ARBITRARY_HIGH_NUMBER, false)]),
+			new pl.type.Term(".", [
+				// answer
+				new pl.type.Term("answer", [
+					// data
+					new pl.type.Term("destroy", [
+						// id
+						idTerm,
+						// data
+						success
+					])
+				]),
+				new pl.type.Term("[]", []),
+			]),
+		])
+	]);
+}
+
 
 export class PrologDO {
 	state: any;
@@ -80,6 +252,107 @@ export class PrologDO {
 		}
 	}
 
+	async exec(id: string, sesh: Prolog, req: Partial<PengineRequest>, start: number, persist: boolean): Promise<PengineResponse> {
+		if (!req.ask) {
+			return {
+				event: "create",
+				id: id,
+			};
+		}
+
+		if (req.src_text) {
+			// TODO: fancier reconsult
+			sesh.session.consult(req.src_text, {
+				reconsult: true,
+				url: false,
+				success: function() {
+					console.log("consulted text:", req.src_text);
+				},
+				error: function(err: any) {
+					console.error("invalid src_text:", req.src_text);
+					throw makeError("consult_error", err, "src_text");
+				}
+			});
+		}
+
+		if (req.src_url) {
+			const resp = await fetch(new Request(req.src_url));
+			if (resp.status != 200) {
+				throw makeError("consult_error", functor("bad_status", resp.status), req.src_url);
+			}
+			const prog = await resp.text();
+
+			console.log("consulted url", req.src_url, prog.slice(0, 64));
+			sesh.session.consult(prog, {
+				reconsult: true,
+				url: false,
+				success: function() {
+					console.log("consulted url:", req.src_url, prog.length);
+				},
+				error: function(err: any) {
+					console.error("invalid src_url text:", prog);
+					throw makeError("consult_error", err, functor("src_url", req.src_url));
+				}
+			});
+		}
+
+		console.log("Ask:", req);
+
+		const answers = sesh.query(req.ask);
+		const results = [];
+		const links = [];
+		let projection: any[] = [];
+		let queryGoal: pl.type.Value | undefined;
+		for await (const [goal, answer] of answers) {
+			const tmpl: pl.type.Value = req.template ?? goal;
+
+			if (answer.indicator == "throw/1") {
+				const resp: ErrorEvent = {
+					"event": "error",
+					"id": id,
+					"data": answer.args[0],
+				};
+				return resp;
+			}
+
+			if (!queryGoal && answer.links) {
+				queryGoal = goal;
+				projection = Object.keys(answer.links).map(x => new pl.type.Term(x, []));
+			}
+
+			const term = tmpl.apply(answer);
+			results.push(term);
+			links.push(answer.links);
+		}
+
+		if (persist) {
+			this.saveInterpreter(sesh);
+		}
+
+		const end = Date.now();
+		const time = (end - start) / 1000;
+
+		if (results.length == 0) {
+			return {
+				event: "failure",
+				id: id,
+				time: time,
+			};
+		}
+
+		const resp: SuccessEvent = {
+			event: "success",
+			data: results,
+			links: links,
+			id: id,
+			more: false,
+			projection: projection,
+			time: time,
+			slave_limit: ARBITRARY_HIGH_NUMBER,
+		};
+		return resp;
+	}
+
 	async penginePing(request: Request) {
 		const url = new URL(request.url);
 		const format = url.searchParams.get("format") || "prolog";
@@ -98,7 +371,7 @@ export class PrologDO {
 		return new JSONResponse(resp);
 	}
 
-	async pengineHandle(request: Request) {
+	async pengineHandle(request: Request): Promise<Response> {
 		if (request.method != "POST") {
 			return new Response("bad method", { status: 405 });
 		}
@@ -136,251 +409,21 @@ export class PrologDO {
 		const id = msg.application;
 
 		try {
-			if (!msg.ask) {
-				if (format == "prolog") {
-					const resp = `create('${id}', []).\n`;
-					return prologResponse(resp);
-				}
-				const resp = {
-					event: "create",
-					id: id,
-				};
-				return new JSONResponse(resp);
-			}
-
-			if (msg.src_text) {
-				sesh.session.consult(msg.src_text, {
-					reconsult: true,
-					success: function () {
-						console.log("consulted text:", msg.src_text);
-					},
-					error: function (err: any) {
-						throw `consult error: ${err}`;
-					}
-				});
-			}
-
-			const src_url = msg.src_url?.trim();
-			if (src_url) {
-				const resp = await fetch(new Request(src_url));
-				if (resp.status != 200) {
-					throw "TODO: bad src_url: " + msg.src_url + " ; " + resp.status;
-				}
-				const prog = await resp.text();
-
-				console.log("consulted url", src_url, prog.slice(0, 64));
-				sesh.session.consult(prog, {
-					reconsult: true,
-					success: function () {
-						console.log("consulted text:", msg.src_text);
-					},
-					error: function (err: any) {
-						throw (`consult error: ${err}`);
-					}
-				});
-				// console.log("after consult", msg.src_url, ":\n", sesh.session.modules)
-			}
-
-			console.log("Ask:", msg);
-
-			const answers = sesh.query(msg.ask);
-			const results = [];
-			const links = [];
-			let projection: any[] = [];
-			let queryGoal: pl.type.Value | undefined;
-			for await (const [goal, answer] of answers) {
-				const tmpl: pl.type.Value = msg.template ?? goal;
-
-				if (answer.indicator == "throw/1") {
-					if (format == "prolog") {
-						const idTerm = new pl.type.Term(id, []);
-						const ball = answer.args[0];
-						const response = new pl.type.Term("create", [
-							idTerm,
-							new pl.type.Term(".", [
-								new pl.type.Term("slave_limit", [new pl.type.Num(ARBITRARY_HIGH_NUMBER, false)]),
-								new pl.type.Term(".", [
-									new pl.type.Term("answer", [
-										new pl.type.Term("destroy", [
-											idTerm,
-											new pl.type.Term("error", [
-												idTerm,
-												ball,
-											])
-										])
-									]),
-									new pl.type.Term("[]", []),
-								]),
-							])
-						]);
-						const text = response.toString(marshalOpts) + ".\n";
-						return prologResponse(text);
-					}
-
-					const resp = {
-						"data": serializeTerm(answer.args[0]),
-						"event": "error",
-						"id": id
-					};
-					return new JSONResponse(resp);
-				}
-
-				if (!queryGoal && answer.links) {
-					queryGoal = goal;
-					projection = Object.keys(answer.links).map(x => new pl.type.Term(x, []));
-				}
-				const term = tmpl.apply(answer);
-				results.push(term);
-				links.push(answer.links);
-			}
-
-			if (persist) {
-				this.saveInterpreter(sesh);
-			}
-
-			const end = Date.now();
-			const time = (end - start) / 1000;
-
-			if (format == "prolog") {
-				const idTerm = new pl.type.Term(id, []);
-
-				if (results.length == 0) {
-					// create(ID, [slave_limit(LIMIT), answer(destroy(ID, failure(ID, TIME)))])
-					const response = new pl.type.Term("create", [
-						// id
-						idTerm,
-						// data (list)
-						new pl.type.Term(".", [
-							// limit (required?)
-							new pl.type.Term("slave_limit", [new pl.type.Num(ARBITRARY_HIGH_NUMBER, false)]),
-							new pl.type.Term(".", [
-								// answer
-								new pl.type.Term("answer", [
-									// data
-									new pl.type.Term("destroy", [
-										// id
-										idTerm,
-										// data
-										new pl.type.Term("failure", [
-											// id
-											idTerm,
-											// time taken
-											new pl.type.Num(time, true),
-										])
-									])
-								]),
-								new pl.type.Term("[]", []),
-							]),
-						])
-					]);
-					const text = response.toString(marshalOpts) + ".\n";
-					return prologResponse(text);
-				}
-
-				/* response format:
-					create(
-						ID,
-						[
-							slave_limit(LIMIT),
-							answer(
-								destroy(ID,
-									success(ID,
-										RESULTS,
-										PROJECTION,
-										TIME,
-										MORE
-									)
-								)
-							)
-						]
-					).
-				*/
-				const response = new pl.type.Term("create", [
-					// id
-					idTerm,
-					// data (list)
-					new pl.type.Term(".", [
-						// limit (required?)
-						new pl.type.Term("slave_limit", [new pl.type.Num(ARBITRARY_HIGH_NUMBER, false)]),
-						new pl.type.Term(".", [
-							// answer
-							new pl.type.Term("answer", [
-								// data
-								new pl.type.Term("destroy", [
-									// id
-									idTerm,
-									// data
-									new pl.type.Term("success", [
-										// id
-										idTerm,
-										// results
-										makeList(results),
-										// projection
-										makeList(projection),
-										// time taken
-										new pl.type.Num(time, true),
-										// more
-										new pl.type.Term("false", []),
-									])
-								])
-							]),
-							new pl.type.Term("[]", []),
-						]),
-					])
-				]);
-				const text = response.toString(marshalOpts) + ".\n";
-				return prologResponse(text);
-			}
-
-			if (results.length == 0) {
-				const resp = {
-					"event": "failure",
-					"id": id
-				};
-				return new Response(JSON.stringify(resp), {
-					headers: {
-						"Content-Type": "application/json; charset=UTF-8",
-					}
-				});
-			}
-
-			const data = links.map(function (link) {
-				const obj: Record<string, string | number | object | null> = {};
-				for (const key of Object.keys(link)) {
-					obj[key] = serializeTerm(link[key]);
-				}
-				return obj;
-			});
-			const resp = {
-				"data": data,
-				"event": results.length > 0 ? "success" : "failure",
-				"id": id,
-				"more": false,
-				"projection": projection.map(x => x.toJavaScript()),
-				"time": time,
-				"slave_limit": ARBITRARY_HIGH_NUMBER,
-			};
-			return new JSONResponse(resp);
+			const resp = await this.exec(id, sesh, msg, start, persist);
+			return formatResponse(format, resp, sesh);
 		} catch(err) {
-			let ball = err;
-			if (!(err instanceof pl.type.Term)) {
-				ball = new pl.type.Term("error", [
-					new pl.type.Term("throw", [
-						new pl.type.Term(`${err}`)
-					])
-				]);
-			}
+			const ball = toProlog(err);
 			if (format == "json") {
 				const resp = {
 					"data": serializeTerm(ball),
 					"event": "error",
-					// "id": id
+					"id": id,
 				};
 				return new JSONResponse(resp);
 			}
-			const idTerm = new pl.type.Term("test", []);
+			const idTerm = new pl.type.Term(id, []);
 			const msg = new pl.type.Term("error", [idTerm, ball]);
-			const text = msg.toString({quoted: true, ignore_ops: false }) + ".\n";
+			const text = msg.toString({session: sesh.session, quoted: true, ignore_ops: false }) + ".\n";
 			return prologResponse(text);
 		}
 	}
