@@ -1,6 +1,6 @@
 import {html, HTML} from "@worker-tools/html";
 
-export function renderIndex(query: string | null, params?: URLSearchParams, result?: any) {
+export function renderIndex(query: string | null, params: URLSearchParams, result?: any) {
 	return html`
 		<!doctype html>
 		<html>
@@ -33,25 +33,22 @@ export function renderIndex(query: string | null, params?: URLSearchParams, resu
 			<body>
 				<h1>Pengines</h1>
 				<form method="GET" action="">
-					<input type="hidden" value="${params?.get("src_url")}" name="src_url">
-					<label for="ask">?- </label> <input type="text" name="ask" id="ask" placeholder="member(X, [1, 2, 3])." autofocus>
+					${params.get("src_url") && html`<input type="hidden" value="${params.get("src_url")}"} name="src_url">`}
+					<label for="ask">?- </label> <input type="text" name="ask" id="ask"
+					${params.get("ask") && html`value="${params.get("ask")}"`}
+					placeholder="member(X, [1, 2, 3]).">
 					<input type="submit" value="Query">
-					<span class="time-taken">${result?.time}s</span>
+					${result?.time && html`<span class="time-taken" title="time taken">${result?.time}s</span>`}
 				</form>
 				<section id="results">
 					${renderAnswersTable(result)}
 				</section>
+				<br>
 				${result && html`
 					<details id="raw">
 						<summary>Raw result</summary>
 						<code>${JSON.stringify(result)}</code>
 					</details>`}
-				<script>
-					var query = "${query}".trim();
-					if (!!query) {
-						document.getElementById("ask").value = query;
-					}
-				</script>
 			</body>
 		</html>
 	`;
@@ -125,7 +122,7 @@ function renderAnswersTable(result: any): HTML {
 	case "failure":
 		return html`
 			<div>
-					<b class="answer false">no</b>
+			🙅 <b class="answer false">no</b>
 			</div>
 		`;
 	case "success":
@@ -150,7 +147,7 @@ function renderAnswerTable(x: Record<string, any>): HTML {
 	const entries = Object.entries(x);
 
 	if (entries.length == 0) {
-		return html`<li><b class="answer true">yes</b></fli>`;
+		return html`👍 <b class="answer true">yes</b>`;
 	}
 
 	/* eslint-disable indent */

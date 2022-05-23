@@ -159,14 +159,15 @@ export class PrologDO {
 			});
 		}
 
-		if (msg.src_url) {
-			const resp = await fetch(new Request(msg.src_url));
+		const src_url = msg.src_url?.trim();
+		if (src_url) {
+			const resp = await fetch(new Request(src_url));
 			if (resp.status != 200) {
 				throw "TODO: bad src_url: " + msg.src_url + " ; " + resp.status;
 			}
 			const prog = await resp.text();
 
-			console.log("consulted url", msg.src_url, prog.slice(0, 64));
+			console.log("consulted url", src_url, prog.slice(0, 64));
 			sesh.session.consult(prog, {
 				reconsult: true,
 				success: function () {
