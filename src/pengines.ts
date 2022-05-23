@@ -381,7 +381,6 @@ export class PrologDO {
 		const start = Date.now();
 		const sesh = await this.loadInterpreter();
 		const persist = false;
-		const marshalOpts = { session: sesh.session, quoted: true, ignore_ops: false };
 
 		// let format, ask, template, application, src_text, src_url;
 		let msg: Partial<PengineRequest>;
