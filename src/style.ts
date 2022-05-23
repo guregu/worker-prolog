@@ -83,6 +83,8 @@ export const indexStyle = html`
     details {
         border: 1px dotted lightgrey;
         max-width: 100%;
+    }
+    details.dump {
         overflow-y: auto;
     }
     details summary {
@@ -103,6 +105,14 @@ export const indexStyle = html`
     .time-taken {
         color: gray;
     }
+
+    table.form {
+        width: 98%;
+    }
+    table.form td:first-of-type{
+        width: 15ch;
+    }
+
     #results table {
         border-collapse: collapse;
         margin: 1px;

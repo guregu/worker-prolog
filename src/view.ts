@@ -27,8 +27,16 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 				<section id="settings">
 					<details>
 						<summary>Advanced</summary>
-						<label for="application">Application:</label> <input type="text" placeholder="pengine_sandbox" id="application" name="application" form="query-form"> <br>
-						<label for="src_url">Source URL:</label> <input type="text" placeholder="http://example.com/test.pl" id="src_url" name="src_url" form="query-form" ${params.get("src_url") && html`value="${params.get("src_url")}"`}>
+						<table class="form">
+							<tr>
+								<td><label for="application">Application:</label></td>
+								<td><input type="text" placeholder="pengine_sandbox" id="application" name="application" form="query-form"></td>
+							</tr>
+							<tr>
+								<td><label for="src_url">Source URL:</label></td>
+								<td><input type="text" placeholder="https://example.com/test.pl" id="src_url" name="src_url" form="query-form" ${params.get("src_url") && html`value="${params.get("src_url")}"`}></td>
+							</tr>
+						</table>						 
 					</details>
 				</section>
 
@@ -39,9 +47,8 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 
 				<section id="query">
 					<form method="GET" id="query-form">
-						${params.get("src_url") && html`<input type="hidden" value="${params.get("src_url")}"} name="src_url">`}
-						
-						<label for="ask">?- </label> <input type="text" name="ask" id="ask"
+						<label for="ask">?- </label>
+						<input type="text" name="ask" id="ask"
 						${params.get("ask") && html`value="${params.get("ask")}"`}
 						placeholder="member(X, [1, 2, 3]).">
 						<input type="submit" value="Query">
@@ -65,17 +72,20 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 				</section>
 
 				<br>
+				
 				${result && html`
-					<details id="raw">
+					<details id="raw" class="dump">
 						<summary>Raw result</summary>
 						<code>${JSON.stringify(result)}</code>
 					</details>`}
+				
+				<br>
+				
+				<footer>
+					${typeof result?.time == "number" && html`<small>query time: ${result.time} sec</small>`}<br>
+					🙡🙠 <a href="https://github.com/guregu/worker-prolog" target="_blank">worker-prolog</a> 🙢🙣
+				</footer>
 			</body>
-
-			<footer>
-				${typeof result?.time == "number" && html`<small>query time: ${result.time} sec</small>`}<br>
-				🙡🙠 <a href="https://github.com/guregu/worker-prolog" target="_blank">worker-prolog</a> 🙢🙣
-			</footer>
 		</html>
 	`;
 }
