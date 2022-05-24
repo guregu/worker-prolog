@@ -15,8 +15,8 @@
     "publish": "wrangler publish"
   },
   "dependencies": {
-    "@worker-tools/html": "^2.0.0-pre.11",
-    "@worker-tools/json-fetch": "^2.1.0-pre.5",
+    "@worker-tools/html": "^2.0.0-pre.12",
+    "@worker-tools/json-fetch": "^2.0.0-pre.12",
     "tau-prolog": "guregu/tau-prolog"
   },
   "platform": "node"

@@ -34,23 +34,22 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 							</tr>
 							<tr>
 								<td><label for="src_url">Source URL:</label></td>
-								<td><input type="text" placeholder="https://example.com/test.pl" id="src_url" name="src_url" form="query-form" ${params.get("src_url") && html`value="${params.get("src_url")}"`}></td>
+								<td><input type="text" placeholder="https://example.com/test.pl" id="src_url" name="src_url" form="query-form" value="${params.get("src_url")}"></td>
 							</tr>
 						</table>						 
 					</details>
 				</section>
 
 				<section id="src">
-					${params.get("src_text") && html`<textarea id="src_text" name="src_text" form="query-form" placeholder="${SRC_TEXT_PLACEHOLDER}">${params.get("src_text")}</textarea>`}
-					${!params.get("src_text") && html`<textarea id="src_text" name="src_text" form="query-form" placeholder="${SRC_TEXT_PLACEHOLDER}"></textarea>`}
+					<textarea id="src_text" name="src_text" form="query-form" placeholder="${SRC_TEXT_PLACEHOLDER}">${params.get("src_text")}</textarea>
 				</section>
 
 				<section id="query">
 					<form method="GET" id="query-form">
 						<label for="ask">?- </label>
 						<input type="text" name="ask" id="ask"
-						${params.get("ask") && html`value="${params.get("ask")}"`}
-						placeholder="member(X, [1, 2, 3]).">
+							value="${params.get("ask")}"
+							placeholder="member(X, [1, 2, 3]).">
 						<input type="submit" value="Query">
 					</form>
 				</section>
@@ -82,8 +81,9 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 				<br>
 				
 				<footer>
-					${typeof result?.time == "number" && html`<small>query time: ${result.time} sec</small>`}<br>
-					🙡🙠 <a href="https://github.com/guregu/worker-prolog" target="_blank">worker-prolog</a> 🙢🙣
+				 <div class="fleuron">⬥ ❦ ⬥</div>
+					${typeof result?.time == "number" && html`<small>query time: ${result.time} sec</small><br>`}
+					<a href="https://github.com/guregu/worker-prolog" target="_blank">worker-prolog</a>
 				</footer>
 			</body>
 		</html>
