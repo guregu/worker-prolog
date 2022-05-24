@@ -97,6 +97,7 @@ export const indexStyle = html`
 
 		input, textarea {
 				font-size: 16px;
+				tab-size: 4;
 		}
 
 		.answer.false {

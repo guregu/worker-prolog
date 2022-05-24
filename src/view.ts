@@ -8,8 +8,6 @@ const EXAMPLE_QUERIES = [
 	"between(1, 64, N), Square is N^2."
 ];
 
-const SRC_TEXT_PLACEHOLDER = "% Prolog code goes here\nmortal(socrates).";
-
 export function renderIndex(query: string | null, params: URLSearchParams, result?: any) {
 	return html`
 		<!doctype html>
@@ -41,7 +39,7 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 				</section>
 
 				<section id="src">
-					<textarea id="src_text" name="src_text" form="query-form" placeholder="${SRC_TEXT_PLACEHOLDER}">${params.get("src_text")}</textarea>
+					<textarea id="src_text" name="src_text" form="query-form" placeholder="% Prolog code goes here&#10;human(socrates).&#10;mortal(X) :- human(X).">${params.get("src_text")}</textarea>
 				</section>
 
 				<section id="query">
@@ -85,6 +83,21 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 					${typeof result?.time == "number" && html`<small>query time: ${result.time} sec</small><br>`}
 					<a href="https://github.com/guregu/worker-prolog" target="_blank">worker-prolog</a>
 				</footer>
+
+				<script>
+				// support tabs in editor
+				document.getElementById("src_text").addEventListener("keydown", (e) => {
+					if (e.key == "Tab" && !e.shiftKey) {
+						e.preventDefault()
+						e.target.setRangeText(
+							"\t",
+							e.target.selectionStart,
+							e.target.selectionStart,
+							"end"
+						);
+					}
+				});
+				</script>
 			</body>
 		</html>
 	`;
