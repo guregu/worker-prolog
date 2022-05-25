@@ -1,14 +1,15 @@
 import { html, HTML } from "@worker-tools/html";
+import { PengineResponse } from "./pengines";
 import { indexStyle } from "./style";
 
-const EXAMPLE_QUERIES = [
-	"member(X, [1, two, cool(prolog)]).",
-	// eslint-disable-next-line quotes
-	`permutation("dog", Permutation).`,
-	"between(1, 64, N), Square is N^2."
+const EXAMPLE_QUERIES: [string, string][] = [
+	["", "permutation(\"dog\", Word)."],
+	["", "between(1, 64, N), Square is N^2."],
+	["", "json_prolog(JS, [a, [b-[c-d]], [hello-world]]), json_atom(JS, JSON)."],
+	["change_lightbulb(N, Who) :- false.", "change_lightbulb(HowMany, prolog_programmer)."],
 ];
 
-export function renderIndex(query: string | null, params: URLSearchParams, result?: any) {
+export function renderIndex(query: string | null, params: URLSearchParams, result?: PengineResponse) {
 	return html`
 		<!doctype html>
 		<meta name="viewport" content="width=device-width, initial-scale=1">
@@ -39,7 +40,7 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 				</section>
 
 				<section id="src">
-					<textarea id="src_text" name="src_text" form="query-form" placeholder="% Prolog code goes here&#10;human(socrates).&#10;mortal(X) :- human(X).">${params.get("src_text")}</textarea>
+					<textarea id="src_text" name="src_text" form="query-form" placeholder="% Prolog code goes here">${params.get("src_text")}</textarea>
 				</section>
 
 				<section id="query">
@@ -57,11 +58,15 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 						<main>
 							<h2>Welcome</h3>
 							<p>
-								Serverless Prolog (Pengines) under construction 👷
+								Are you ready to run some Prolog? Execute your query in the cloud, no JS required.<br>
+								Need RPC? <a href="https://www.swi-prolog.org/pldoc/doc_for?object=section(%27packages/pengines.html%27)" target="_blank">Pengines</a> API supported as well.
+								<br><br>
+								
+								👷 Under Construction 🚧 
 							</p>
 							<h3>Example queries:</h3>
 							<ul>
-								${EXAMPLE_QUERIES.map(x => html`<li><a href="?ask=${x}">${x}</a></li>`)}
+								${EXAMPLE_QUERIES.map(([src, ask]) => html`<li><a href="?ask=${ask}&src_text=${src}">${ask}</a></li>`)}
 							</ul>
 						</main>
 					`}
@@ -171,7 +176,7 @@ function renderAnswersTable(result: any): HTML {
 	case "failure":
 		return html`
 			<div>
-			🙅 <b class="answer false">no</b>
+			💡 <b class="answer false">no</b>
 			</div>
 		`;
 	case "success":
@@ -213,7 +218,16 @@ function renderAnswerTable(x: Record<string, any>): HTML {
 function renderTerm(x: any): HTML {
 	switch (typeof x) {
 	case "number":
+		return html`${x}`;
 	case "string":
+		if ((x.startsWith("{") && x.endsWith("}")) || (x.startsWith("[") && x.endsWith("]"))) {
+			try {
+				const obj = JSON.parse(x);
+				return html`<pre>${JSON.stringify(obj, null, 2)}</pre>`;
+			} catch {
+				//
+			}
+		}
 		return html`${x}`;
 	default:
 		if (x == null) {
@@ -229,6 +243,10 @@ function renderTerm(x: any): HTML {
 				}
 				return html`${result}`;
 			})}]`;
+		}
+
+		if (typeof x.pretty == "string") {
+			return html`${x.pretty}`;
 		}
 
 		// compound

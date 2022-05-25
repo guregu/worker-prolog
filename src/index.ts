@@ -1,7 +1,7 @@
 import { HTMLResponse } from "@worker-tools/html";
 
 import { renderIndex } from "./view";
-import { DEFAULT_APPLICATION, PengineRequest } from "./pengines";
+import { DEFAULT_APPLICATION, PengineRequest, PengineResponse } from "./pengines";
 
 export default {
 	async fetch(request: Request, env: any): Promise<Response> {
@@ -29,7 +29,7 @@ export default {
 		console.log("form", form);
 
 		const ask = form.get("ask");
-		let result: any;
+		let result: PengineResponse | undefined;
 		if (ask) {
 			const req: Partial<PengineRequest> = {
 				ask: ask,

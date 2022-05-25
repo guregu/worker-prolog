@@ -30,6 +30,7 @@ export interface PengineResponse {
 	code?: string, // error code
 	slave_limit?: number,
 	answer?: PengineResponse,
+	operators?: Map<number, Map<string, string[]>> // priority → op → names
 }
 
 export interface ErrorEvent extends PengineResponse {
@@ -56,7 +57,7 @@ function formatResponse(format: "json" | "prolog", resp: PengineResponse, sesh?:
 	case "create":
 		if (json) {
 			if (resp.answer) {
-				resp.answer = makeJSONAnswer(resp.answer);
+				resp.answer = makeJSONAnswer(resp.answer, sesh);
 			}
 			return new JSONResponse(resp);
 		}
@@ -74,7 +75,7 @@ function formatResponse(format: "json" | "prolog", resp: PengineResponse, sesh?:
 		break;
 	case "success":
 		if (json) {
-			return new JSONResponse(makeJSONAnswer(resp));
+			return new JSONResponse(makeJSONAnswer(resp, sesh));
 		}
 		return makePrologResponse(makePrologAnswer(resp, false), sesh);
 	case "failure":
@@ -88,7 +89,7 @@ function formatResponse(format: "json" | "prolog", resp: PengineResponse, sesh?:
 	case "error":
 		if (json) {
 			// TODO: set "code"
-			resp.data = serializeTerm(toProlog(resp.data));
+			resp.data = serializeTerm(toProlog(resp.data), sesh);
 			return new JSONResponse(resp);
 		}
 		return makePrologResponse(new pl.type.Term("error", [
@@ -109,11 +110,11 @@ function makePrologResponse(term: pl.type.Value, sesh?: Prolog): Response {
 	return prologResponse(text + ".\n");
 }
 
-function makeJSONAnswer(answer: SuccessEvent): PengineResponse {
+function makeJSONAnswer(answer: SuccessEvent, sesh?: Prolog): PengineResponse {
 	const data = answer.links.map(function (link) {
 		const obj: Record<string, string | number | object | null> = {};
 		for (const key of Object.keys(link)) {
-			obj[key] = serializeTerm(link[key]);
+			obj[key] = serializeTerm(link[key], sesh);
 		}
 		return obj;
 	});
@@ -414,7 +415,7 @@ export class PrologDO {
 			const ball = toProlog(err);
 			if (format == "json") {
 				const resp = {
-					"data": serializeTerm(ball),
+					"data": serializeTerm(ball, sesh),
 					"event": "error",
 					"id": id,
 				};
@@ -451,7 +452,7 @@ function unserializeRule(rule: any): pl.type.Rule {
 	return new pl.type.Rule(unserializeTerm(rule.head), unserializeTerm(rule.body), rule.dynamic);
 }
 
-function serializeTerm(term: pl.type.Value): string | number | object | null {
+function serializeTerm(term: pl.type.Value, sesh?: Prolog): string | number | object | null {
 	if (!term) {
 		return null;
 	}
@@ -465,14 +466,28 @@ function serializeTerm(term: pl.type.Value): string | number | object | null {
 		let cur: pl.type.Term<number, string> = term;
 		const list = [];
 		do {
-			list.push(serializeTerm(cur.args[0]));
+			list.push(serializeTerm(cur.args[0], sesh));
 			cur = cur.args[1] as pl.type.Term<number, string>;
 		} while (cur.args.length == 2);
 		return list;
 	}
+	if (pl.type.is_js_object(term)) {
+		return {
+			"functor": "<js>",
+			"args": ["object"],
+		};
+	}
+	if (Array.isArray(term?.args)) {
+		return {
+			"functor": term.id,
+			"args": term.args.map(x => serializeTerm(x, sesh)),
+			"pretty": term.toString({ session: sesh?.session, quoted: true, squish: true, ignore_ops: false })
+		};
+	}
 	return {
-		"functor": term.id,
-		"args": term.args.map(x => serializeTerm(x))
+		"functor": "???",
+		"args": [serializeTerm(toProlog(term))],
+		// "pretty": term.toString({ session: sesh?.session, quoted: true, squish: true, ignore_ops: false })
 	};
 }
 

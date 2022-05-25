@@ -46,6 +46,7 @@ export const indexStyle = html`
 				top: 0;
 				background: #f7f7f7b3;
 				backdrop-filter: blur(var(--frost-blur, 6px));
+				-webkit-backdrop-filter: blur(var(--frost-blur, 6px));
 				margin: 0;
 				padding-left: 8px;
 				padding-right: 8px;
@@ -66,14 +67,13 @@ export const indexStyle = html`
 		}
 		#query form #ask {
 				flex: 1;
-				max-width: 80ch;
 		}
 
 
 		#src_text {
 				width: 80ch;
 				height: 24ch;
-				max-width: calc(100% - 8px);
+				width: calc(100% - 8px);
 		}
 
 		section {
@@ -90,21 +90,19 @@ export const indexStyle = html`
 		details summary {
 				background: #efefeb;
 				padding: 0.3em;
+				cursor: pointer;
 		}
 		details > *:not(summary) {
 				margin: 0.3em;
 		}
 
+		details input {
+			width: min(calc(100% - 8px), 80ch);
+		}
+
 		input, textarea {
 				font-size: 16px;
 				tab-size: 4;
-		}
-
-		.answer.false {
-				color: crimson;
-		}
-		.time-taken {
-				color: gray;
 		}
 
 		table.form {
@@ -114,13 +112,20 @@ export const indexStyle = html`
 				width: 15ch;
 		}
 
+		.answer.false {
+				color: crimson;
+		}
+
 		#results table {
-				border-collapse: collapse;
 				margin: 1px;
+				border-collapse: collapse;
 		}
 		#results th, #results td {
 				border: 1px solid lightgrey;
 				padding: 0.3em;
+		}
+		#results th {
+			background: #f4f4f4;
 		}
 
 		footer {
@@ -129,7 +134,6 @@ export const indexStyle = html`
 				color: #bdbdbd;
 		}
 		footer a, footer a:visited {
-				/* text-decoration: none; */
 				color: #b5a7c9;
 		}
 </style>`;

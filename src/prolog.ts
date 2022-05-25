@@ -1,9 +1,15 @@
 import pl from "tau-prolog";
 import plLists from "tau-prolog/modules/lists";
 import plJS from "tau-prolog/modules/js";
+import plRand from "tau-prolog/modules/random";
+import plStats from "tau-prolog/modules/statistics";
+import plFmt from "tau-prolog/modules/format";
 
 plLists(pl);
 plJS(pl);
+plRand(pl);
+plStats(pl);
+plFmt(pl);
 
 // Heavily inspired by yarn/berry
 
@@ -15,6 +21,7 @@ export class Prolog {
 		this.session.consult(`
 			:- use_module(library(lists)).
 			:- use_module(library(js)).
+			:- use_module(library(format)).
 		`);
 		if (source) {
 			this.session.consult(source);
@@ -97,7 +104,7 @@ export function toProlog(x: any): pl.type.Value {
 		}
 
 		// hail mary
-		return new pl.type.Term("?", [new pl.type.Term(`${x}`, [])]);
+		return new pl.type.Term("???", [new pl.type.Term(`${x}`, [])]);
 	}
 }
 
