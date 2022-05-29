@@ -2,6 +2,7 @@ import { HTMLResponse } from "@worker-tools/html";
 
 import { renderIndex } from "./view";
 import { DEFAULT_APPLICATION, PengineRequest, PengineResponse } from "./pengines";
+import { renderPengine } from "./views/pengine";
 
 export default {
 	async fetch(request: Request, env: any): Promise<Response> {
@@ -10,14 +11,9 @@ export default {
 		let idParam = url.searchParams.get("id");
 		if (!idParam || idParam.length == 0) {
 			idParam = crypto.randomUUID();
-			console.log("RANDO", idParam);
-		} else {
-			console.log("FIXED:", idParam);
 		}
 		// DO hack?
 		url.searchParams.set("pengines_id", idParam);
-		// request.url = url.toString();
-
 		const fwd = new Request(url.toString(), {
 			method: request.method,
 			body: request.body,
@@ -34,15 +30,25 @@ export default {
 			return new Response(null, {headers: corsHeaders});
 		}
 
-		// const id = env.PROLOG_DO.idFromName(idParam);
 		// const persist = app != DEFAULT_APPLICATION;
-		const id = idParam ? env.PROLOG_DO.idFromName(idParam) : env.PROLOG_DO.newUniqueId();
-		console.log("ID IDPARAM", id, idParam);
-		// const id = persist ? env.PROLOG_DO.newUniqueId() : env.PROLOG_DO.idFromName(app);
+		const id = env.PROLOG_DO.idFromName(idParam);
 		const stub = env.PROLOG_DO.get(id);
 
 		if (url.pathname.startsWith("/pengine/")) {
 			return await stub.fetch(fwd);
+		}
+
+		if (url.pathname.startsWith("/p/")) {
+			const resp = await stub.fetch(new Request(url.toString(), {
+				// method: "POST",
+				// body: JSON.stringify(req),
+				// headers: {
+				// 	"Content-Type": "application/json; charset=UTF-8"
+				// }
+			}));
+			const result = await resp.json();
+			const content = renderPengine(result);
+			return new HTMLResponse(content);
 		}
 
 		const form = url.searchParams;

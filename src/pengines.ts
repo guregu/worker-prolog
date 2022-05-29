@@ -3,6 +3,7 @@ import pl from "tau-prolog";
 import { JSONResponse } from "@worker-tools/json-fetch";
 
 import { Prolog, makeList, makeError, functor, toProlog, Query } from "./prolog";
+import { replacer, makeReviver, Store } from "./unholy";
 
 export const DEFAULT_APPLICATION = "pengine_sandbox";
 
@@ -18,13 +19,15 @@ export interface PengineRequest {
 	src_url: string,
 	chunk: number,
 	format: "json" | "prolog",
+	create: boolean,
 	destroy: boolean,
 	stop: boolean,
 	next: boolean,
+	cmd: "create" | "destroy" | "ask" | "next" | "stop";
 }
 
 export interface PengineResponse {
-	event: "create" | "destroy" | "success" | "failure" | "error",
+	event: "create" | "destroy" | "success" | "failure" | "error" | "stop",
 	id: string,
 	data?: PengineResponse | any,
 	more?: boolean,
@@ -239,8 +242,15 @@ export class PrologDO {
 	src_urls: string[] = [];
 	req?: Partial<PengineRequest>;
 
+	points: Store<pl.type.State[]>;
+	query: Store<Partial<PengineRequest>>;
+	rules: Store<pl.type.Rule[]>;
+
 	constructor(state: DurableObjectState, env: any) {
 		this.state = state;
+		this.points = new Store(this.state.storage, "points", pl.type);
+		this.query = new Store(this.state.storage, "query", pl.type);
+		this.rules = new Store(this.state.storage, "rules", pl.type);
 		this.state.blockConcurrencyWhile(async () => {
 			this.sesh = await this.loadInterpreter(this.state.id.toString());
 		});	  
@@ -267,118 +277,47 @@ export class PrologDO {
 	}
 
 	async loadInterpreter(app: string, module = "user"): Promise<Prolog> {
-		const root = `app:${app}:v${CURRENT_VERSION}:module:${module}:`;
 		const sesh = new Prolog();
 
-		const rules: Map<string, any> = await this.state.storage.list({
-			prefix: root,
-		});
-
-		const mod = {};
-		let n = 0;
-		for (const [key, rule] of rules) {
-			const pi = key.slice(root.length);
-			mod[pi] = rule;
-			n++;
-		}
-
-		if (n > 0) {
-			loadModule(sesh.session.modules[module], mod);
-		} else {
-			console.log("mod not found:", root);
-		}
+		const mod = await this.rules.record(app + "::" + module);
+		loadModule(sesh.session.modules[module], mod);
 
 		return sesh;
 	}
 
 	async saveInterpreter(app = DEFAULT_APPLICATION, module = "user") {
-		// const root = `app:${app}:v${CURRENT_VERSION}:module:${module}:`;
-		const id = this.state.id.toString(); // TODO
-		const root = `app:${id}:v${CURRENT_VERSION}:module:${module}:`;
-		const rules = this.sesh.session.modules[module]?.rules;
+		const rules: Record<string, pl.type.Rule[]> = this.sesh.session.modules[module]?.rules;
 		if (!rules) {
 			return false;
 		}
 		for (const [id, rule] of Object.entries(rules)) {
-			const key = root + id;
+			const key = `${app}::${module}:${id}`;
 			console.log("PUT:", key, rule);
-			this.state.storage.put(key, rule);
+			this.rules.put(key, rule);
 		}
 		console.log("saved", app, module);
 	}
 
-	async loadState(id: string): Promise<[Partial<PengineRequest>, pl.type.State[]]> {
-		const reqKey = `id:${id}:v${CURRENT_VERSION}:req`;
-		const req = await this.state.storage.get(reqKey) as Partial<PengineRequest>;
+	async loadState(id: string): Promise<[Partial<PengineRequest> | undefined, pl.type.State[]]> {
+		const req = await this.query.get(id);
 		console.log("reqqq", req);
 
-		let next = [];
-		const ptsKey = `id:${id}:v${CURRENT_VERSION}:points`;
-		const pts = await this.state.storage.get(ptsKey);
-		console.log("K,V", ptsKey, pts);
-		if (pts) {
-			next = await this.loadChoicePoints(pts);
-			console.log("ptzaft22222er", next);
-			// next = this.next;
-		}
+		const next = await this.points.get(id) ?? [];
+		console.log("next?", next);
 		return [req, next];
 	}
 
 	async saveState(id: string, req: Partial<PengineRequest>, pts: pl.type.State[]) {
-		console.log("SAVE STATE:", id, req, pts);
-
-		const reqKey = `id:${id}:v${CURRENT_VERSION}:req`;
-		const ptsKey = `id:${id}:v${CURRENT_VERSION}:points`;
-
 		if (pts.length > 0) {
-			console.log("SAVING STATE...", id, req, pts, "||", ptsKey, pts);
-			// TODO maybe unneeded
-			await this.state.storage.put(reqKey, req);
-			await this.state.storage.put(ptsKey, pts);
-			// more
-			return true;
+			console.log("SAVING STATE...", id, pts, req);
+			this.query.put(id, req);
+			this.points.put(id, pts);
+			return true; // more
 		}
-
-		console.log("DELETING!! STATE...", id, req, pts);
-		this.state.storage.delete(reqKey);
-		this.state.storage.delete(ptsKey);
-		// no more
-		return false;
-	}
-
-	async loadChoicePoints(pts: pl.type.State[]) {
-		console.log("---------> from", pts);
-		const next = [];
-		const proto = Object.getPrototypeOf(new pl.type.State());
-		for (let pt of pts) {
-			pt = Object.setPrototypeOf(pt, proto);
-			let current = pt;
-			while (current) {
-				console.log("enloop p");
-				current = Object.setPrototypeOf(current, proto);
-				if (current.goal) {
-					current.goal = unserializeTerm(current.goal);
-				}
-				if (current.substitution) {
-					const links = {};
-					// TODO: attrs
-					for (const [k, v] of Object.entries(current.substitution.links)) {
-						links[k] = unserializeValue(v);
-					}
-					current.substitution = new pl.type.Substitution(links);
-				}
-				current = current.parent;
-			}
-			console.log("outloop p");
-			console.log("PUSHIN'!", pt);
-			next.push(pt.clone());
-			console.log("afterxxPUSHIN'!", next.length);
-			// return [pt];
-			// const clone = pt.clone(); // TODO: needed?
-			// this.next.push(clone);
-		}
-		console.log("retrnin", next);
-		return next;
+		console.log("DELETING STATE...", id);
+		// this.query.delete(id);
+		this.points.delete(id);
+		return false; // no more
 	}
 
 	async exec(id: string, req: Partial<PengineRequest>, start: number, persist: boolean): Promise<PengineResponse> {
@@ -410,11 +349,11 @@ export class PrologDO {
 			return {
 				event: "create",
 				id: id,
+				slave_limit: ARBITRARY_HIGH_NUMBER,
 			};
 		}
 
 		const [parentReq, next] = await this.loadState(id);
-		console.log("LOADED STATE:", id, parentReq, next);
 
 		if (req.src_text) {
 			// TODO: fancier reconsult
@@ -455,11 +394,6 @@ export class PrologDO {
 			} else {
 				console.log("already loaded:", req.src_url);
 			}
-		}
-
-		if (req.next) {
-			console.log("REQ NEXT:", this.req, next);
-			// req.ask = undefined;
 		}
 
 		console.log("Ask:", req, "SESH", this.sesh, "NEXT?", next);
@@ -535,15 +469,15 @@ export class PrologDO {
 			};
 		}
 
-		// if (!more && req.destroy) {
-		// 	event = {
-		// 		event: "destroy",
-		// 		id: id,
-		// 		data: event,
-		// 	};
-		// }
+		if (!more && req.destroy) {
+			event = {
+				event: "destroy",
+				id: id,
+				data: event,
+			};
+		}
 
-		if (!parentReq) {
+		if (!parentReq && req.create) {
 			return {
 				event: "create",
 				id: id,
@@ -551,15 +485,7 @@ export class PrologDO {
 			};
 		}
 
-		if (more) {
-			return event;
-		}
-	
-		return {
-			event: "destroy",
-			id: id,
-			data: event,
-		};
+		return event;
 	}
 
 	async penginePing(request: Request) {
@@ -589,6 +515,7 @@ export class PrologDO {
 		const start = Date.now();
 		let msg: Partial<PengineRequest>;
 		let format = url.searchParams.get("format");
+		const create = url.pathname == "/pengine/create";
 
 		const contentType = request.headers.get("Content-Type")?.toLowerCase() || "";
 		if (contentType.includes("application/json")) {
@@ -604,13 +531,13 @@ export class PrologDO {
 		} else if (!format) {
 			format = "prolog";
 		}
+		msg.create = create;
 
 		if (!msg.application) {
 			msg.application = DEFAULT_APPLICATION;
 		}
 
 		const id = url.searchParams.get("pengines_id") ?? msg.id ?? this.state.id.toString();
-		console.log("ID===", url.searchParams.get("id"), msg.id, "XXX");
 		// const persist = id !== DEFAULT_APPLICATION; // TODO
 		const persist = true;
 
@@ -652,37 +579,6 @@ function fixQuery(query?: string): string | undefined {
 	return query;
 }
 
-function unserializeTerm(term: any): pl.type.Term<number, string> {
-	if (term == undefined) {
-		console.log("undefined term");
-		return undefined;
-	}
-	return new pl.type.Term(term.id, term.args?.map(unserializeValue));
-}
-
-function unserializeRule(rule: any): pl.type.Rule {
-	return new pl.type.Rule(unserializeTerm(rule.head), unserializeTerm(rule.body), rule.dynamic);
-}
-
-function unserializeValue(v: any): pl.type.Value {
-	if (v == undefined) {
-		console.log("undefined value");
-		return undefined;
-	}
-	if (typeof v.is_float == "boolean") {
-		return new pl.type.Num(v.value, v.is_float);
-	}
-	if (typeof v.ground == "boolean") {
-		return new pl.type.Var(v.id, v.ground);
-	}
-	return unserializeTerm(v);
-}
-
-function unserializeState(state: any): pl.type.State {
-	throw(state);
-	// return new pl.type.State();
-}
-
 function serializeTerm(term: pl.type.Value, sesh?: Prolog): string | number | object | null {
 	if (!term) {
 		return null;
@@ -709,7 +605,6 @@ function serializeTerm(term: pl.type.Value, sesh?: Prolog): string | number | ob
 		};
 	}
 	if (Array.isArray(term?.args)) {
-		console.log("serualizin", term);
 		return {
 			"functor": term.id,
 			"args": term.args.map(x => serializeTerm(x, sesh)),
@@ -824,8 +719,7 @@ function loadModule(mod: any, data: any) {
 	
 	for (const id of Object.keys(data)) {
 		const rules = data[id];
-		for (const raw of rules) {
-			const rule = unserializeRule(raw);
+		for (const rule of rules) {
 			if (mod.rules[id] === undefined) {
 				mod.rules[id] = [];
 			}

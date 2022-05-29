@@ -67,11 +67,9 @@ export class Query {
 			});
 			return;
 		} 
-		console.log("ASKKKKK", ask, typeof ask);
 		for (const pt of ask) {
 			this.thread.points = ask;
 		}
-		console.log("succcesxs?", this.thread);
 	}
 	
 	private next() {

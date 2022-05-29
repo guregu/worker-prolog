@@ -10,6 +10,9 @@ const EXAMPLE_QUERIES: [string, string][] = [
 ];
 
 export function renderIndex(query: string | null, params: URLSearchParams, result?: PengineResponse) {
+	if (result?.event == "create" && result?.answer) {
+		result = result.answer;
+	}
 	return html`
 		<!doctype html>
 		<meta name="viewport" content="width=device-width, initial-scale=1">
