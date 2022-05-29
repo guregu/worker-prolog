@@ -1,4 +1,4 @@
-import { html, HTML } from "@worker-tools/html";
+import { html, HTML, unsafeHTML } from "@worker-tools/html";
 import { PengineResponse } from "./pengines";
 import { indexStyle } from "./style";
 
@@ -6,7 +6,7 @@ const EXAMPLE_QUERIES: [string, string][] = [
 	["", "permutation(\"dog\", Word)."],
 	["", "between(1, 64, N), Square is N^2."],
 	["", "json_prolog(JS, [a, [b-[c-d]], [hello-world]]), json_atom(JS, JSON)."],
-	["change_lightbulb(N, Who) :- false.", "change_lightbulb(HowMany, prolog_programmer)."],
+	["% https://www.j-paine.org/dobbs/prolog_lightbulb.html\nchange_lightbulb(1, porlog_programmer).", "change_lightbulb(HowMany, prolog_programmer)."],
 ];
 
 export function renderIndex(query: string | null, params: URLSearchParams, result?: PengineResponse) {
@@ -28,8 +28,12 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 						<summary>Advanced</summary>
 						<table class="form">
 							<tr>
+								<td><label for="id">ID:</label></td>
+								<td><input type="text" placeholder="(blank to randomly generate)" id="id" name="id" form="query-form" value="${result?.id ?? params.get("id")}"></td>
+							</tr>
+							<tr>
 								<td><label for="application">Application:</label></td>
-								<td><input type="text" placeholder="pengine_sandbox" id="application" name="application" form="query-form"></td>
+								<td><input type="text" placeholder="pengine_sandbox" id="application" name="application" form="query-form" value="${params.get("application")}"></td>
 							</tr>
 							<tr>
 								<td><label for="src_url">Source URL:</label></td>
@@ -66,7 +70,7 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 							</p>
 							<h3>Example queries:</h3>
 							<ul>
-								${EXAMPLE_QUERIES.map(([src, ask]) => html`<li><a href="?ask=${ask}&src_text=${src}">${ask}</a></li>`)}
+								${EXAMPLE_QUERIES.map(([src, ask]) => html`<li><a href="?ask=${ask}&src_text=${unsafeHTML(encodeURIComponent(src))}">${ask}</a></li>`)}
 							</ul>
 						</main>
 					`}

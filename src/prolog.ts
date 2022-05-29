@@ -36,18 +36,59 @@ export class Prolog {
 		});
 	}
 
-	public async* query(query: string) {
-		this.session.query(query, {
-			error: function () { console.log("ERROR!!!", arguments); },
-			html: false,
-		});
+	public async* query(query?: string) {
+		const iter = new Query(this.session, query).answer();
 
+		// if (query) {
+		// 	thread.query(query, {
+		// 		error: function () { console.log("ERROR!!!", arguments); },
+		// 		html: false,
+		// 	});
+		// }
+
+		for await (const [goal, answer] of iter) {
+			yield [goal, answer];
+		}
+	}
+
+}
+
+export class Query {
+	public thread: pl.type.Thread;
+	public ask?: string;
+
+	public constructor(sesh: pl.type.Session, ask: string | pl.type.Point[]) {
+		this.thread = new pl.type.Thread(sesh);
+		if (typeof ask == "string") {
+			this.ask = ask;
+			this.thread.query(ask, {
+				error: function () { console.log("ERROR!!!", arguments); },
+				html: false,
+			});
+			return;
+		} 
+		console.log("ASKKKKK", ask, typeof ask);
+		for (const pt of ask) {
+			this.thread.points = ask;
+		}
+		console.log("succcesxs?", this.thread);
+	}
+	
+	private next() {
+		return new Promise<pl.Answer>(resolve => {
+			this.thread.answer((result: any) => {
+				resolve(result);
+			});
+		});
+	}
+
+	public async* answer() {
 		while (true) {
 			const answer = await this.next();
 			if (!answer) {
 				break;
 			}
-			let pt = this.session.thread.current_point;
+			let pt = this.thread.current_point;
 			while (pt.parent) {
 				pt = pt.parent;
 			}
@@ -56,9 +97,12 @@ export class Prolog {
 		}
 	}
 
+	public more(): boolean {
+		return this.thread.points.length > 0;
+	}
 }
 
-export function makeList(array: pl.type.Value[], cons = new pl.type.Term("[]", [])) {
+export function makeList(array: pl.type.Value[] = [], cons = new pl.type.Term("[]", [])) {
 	let list = cons;
 	for (let i = array.length - 1; i >= 0; i--) {
 		list = new pl.type.Term(".", [array[i], list]);
