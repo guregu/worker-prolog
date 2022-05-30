@@ -67,9 +67,7 @@ export class Query {
 			});
 			return;
 		} 
-		for (const pt of ask) {
-			this.thread.points = ask;
-		}
+		this.thread.points = ask;
 	}
 	
 	private next() {

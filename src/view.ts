@@ -53,11 +53,13 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 				<section id="query">
 					<form method="GET" id="query-form">
 						<label for="ask">?- </label>
-						<input type="text" name="ask" id="ask"
+						<input type="search" name="ask" id="ask"
 							value="${params.get("ask")}"
-							placeholder="member(X, [1, 2, 3]).">
+							placeholder="member(X, [1, 2, 3])."
+							list=examples>
 						<input type="submit" value="Query">
 					</form>
+					<datalist id="examples"></datalist>
 				</section>
 
 				<section id="results">
@@ -97,18 +99,41 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 				</footer>
 
 				<script>
-				// support tabs in editor
-				document.getElementById("src_text").addEventListener("keydown", (e) => {
-					if (e.key == "Tab" && !e.shiftKey) {
-						e.preventDefault()
-						e.target.setRangeText(
-							"\t",
-							e.target.selectionStart,
-							e.target.selectionStart,
-							"end"
-						);
-					}
-				});
+
+SRC_TEXT = document.getElementById("src_text");
+// support tabs in editor
+SRC_TEXT.addEventListener("keydown", (e) => {
+	if (e.key == "Tab" && !e.shiftKey) {
+		e.preventDefault()
+		e.target.setRangeText(
+			"\t",
+			e.target.selectionStart,
+			e.target.selectionStart,
+			"end"
+		);
+	}
+});
+
+EXAMPLE_SIGIL = "% ?- ";
+function refreshExamples() {
+	const lines = SRC_TEXT.value.split('\\n');
+	const examples = lines.filter(function(x) { return x.trim().startsWith(EXAMPLE_SIGIL); });
+	const frag = document.createDocumentFragment();
+	for (const ex of examples) {
+		const opt = document.createElement("option");
+		opt.value = ex.slice(EXAMPLE_SIGIL.length);
+		frag.appendChild(opt);
+	}
+	if (examples.length > 0) {
+		document.getElementById("ask").placeholder = frag.firstChild.value;
+	}
+	const elem = document.getElementById("examples");
+	elem.textContent = ""; // reset children :-)
+	elem.appendChild(frag);
+}
+document.addEventListener("DOMContentLoaded", refreshExamples);
+SRC_TEXT.addEventListener("blur", refreshExamples);
+
 				</script>
 			</body>
 		</html>

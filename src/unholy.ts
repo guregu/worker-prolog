@@ -3,7 +3,7 @@ const CURRENT_VERSION = 0;
 export class Store<T> {
 	storage: DurableObjectStorage;
 	key: string;
-	reviver: any;
+	reviver: (k: string, v: any) => any | undefined;
 
 	public constructor(storage: DurableObjectStorage, key: string, types: Record<string, any>) {
 		this.storage = storage;
@@ -23,7 +23,7 @@ export class Store<T> {
 	}
 
 	public async record(id: string, prefix?: string): Promise<Record<string, T>> {
-		const path = `${this.path(id)}:${prefix ?? ""}`;
+		const path = `${this.path(id)}::${prefix ?? ""}:`;
 		const items = await this.storage.list({
 			prefix: path,
 		});
@@ -39,16 +39,41 @@ export class Store<T> {
 	}
 
 	public async put(id: string, v: T): Promise<void> {
-		const enc = JSON.stringify(v, replacer);
-		return this.storage.put(this.path(id), enc);
+		const path = this.path(id);
+		const enc = this.encode(v);
+		return this.storage.put(path, enc);
+	}
+
+	public async putRecord(id: string, prefix: string, record: Record<string, T>) {
+		const put: Record<string, string> = {};
+		for (const [key, value] of Object.entries(record)) {
+			const path = this.recordPath(id, prefix, key);
+			const enc = this.encode(value);
+			put[path] = enc;
+		}
+		return this.storage.put(put);
+	}
+
+	public async putRecordItem(id: string, prefix: string, key: string, value: T) {
+		const path = this.recordPath(id, prefix, key);
+		const enc = this.encode(value);
+		return this.storage.put(path, enc);
 	}
 
 	public async delete(id: string): Promise<boolean> {
 		return this.storage.delete(this.path(id));
 	}
 
+	private encode(value: T): string {
+		return JSON.stringify(value, replacer);
+	}
+
 	private path(id: string): string {
 		return `id:${id}:v${CURRENT_VERSION}:${this.key}`;
+	}
+
+	private recordPath(id: string, prefix = "", key = ""): string {
+		return `${this.path(id)}::${prefix}:${key}`;
 	}
 }
 
