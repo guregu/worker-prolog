@@ -128,6 +128,22 @@ export const indexStyle = html`
 			background: #f4f4f4;
 		}
 
+		blockquote.output {
+			background: #1b1a1a;
+			color: white;
+    		/* font-family: monospace; */
+			font-size: medium;
+			margin: 0.3em;
+    		padding: 1em;
+			white-space: pre;
+			overflow: auto;
+			word-break: keep-all;
+			overflow-wrap: normal;
+		}
+		blockquote.output:empty {
+			display: none;
+		}
+
 		footer {
 				padding-top: 1em;
 				text-align: center;

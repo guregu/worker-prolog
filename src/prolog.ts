@@ -4,12 +4,15 @@ import plJS from "tau-prolog/modules/js";
 import plRand from "tau-prolog/modules/random";
 import plStats from "tau-prolog/modules/statistics";
 import plFmt from "tau-prolog/modules/format";
+import plChrs from "tau-prolog/modules/charsio";
 
 plLists(pl);
 plJS(pl);
 plRand(pl);
 plStats(pl);
 plFmt(pl);
+plChrs(pl);
+betterJSON(pl, "@"); // SWI-ish
 
 // Heavily inspired by yarn/berry
 
@@ -22,6 +25,7 @@ export class Prolog {
 			:- use_module(library(lists)).
 			:- use_module(library(js)).
 			:- use_module(library(format)).
+			:- use_module(library(charsio)).
 		`);
 		if (source) {
 			this.session.consult(source);
@@ -56,9 +60,22 @@ export class Prolog {
 export class Query {
 	public thread: pl.type.Thread;
 	public ask?: string;
+	
+	private outputBuf = "";
 
 	public constructor(sesh: pl.type.Session, ask: string | pl.type.Point[]) {
 		this.thread = new pl.type.Thread(sesh);
+
+		this.thread.set_current_output(new pl.type.Stream({
+			put: function(text: string) {
+				this.outputBuf += text;
+				return true;
+			}.bind(this),
+			flush: function() {
+				return true;
+			}.bind(this), 
+		}, "append", "worker", "text", false, "reset"));
+
 		if (typeof ask == "string") {
 			this.ask = ask;
 			this.thread.query(ask, {
@@ -91,6 +108,10 @@ export class Query {
 			const goal = pt.goal;
 			yield [goal, answer];
 		}
+	}
+
+	public output(): string {
+		return this.outputBuf;
 	}
 
 	public more(): boolean {
@@ -150,4 +171,36 @@ export function toProlog(x: any): pl.type.Value {
 
 export function functor(head: string, ...args: any[]): pl.type.Term<number, string> {
 	return new pl.type.Term(head, args.map(toProlog));
+}
+
+function betterJSON(pl, functor = "{}") {
+	// JS → Prolog
+	pl.fromJavaScript.conversion.boolean = function(obj) {
+		return new pl.type.Term(functor, [
+			new pl.type.Term(obj ? "true" : "false", [])
+		]);
+	};
+	const js2term = pl.fromJavaScript.conversion.object;
+	pl.fromJavaScript.conversion.object = function(obj) {
+		if (obj === null) {
+			return new pl.type.Term(functor, [
+				new pl.type.Term("null", [])
+			]);
+		}
+		return js2term.apply(this, arguments);
+	};
+
+	// Prolog → JS
+	const term2js = pl.type.Term.prototype.toJavaScript;
+	pl.type.Term.prototype.toJavaScript = function() {
+		if (this.indicator == functor + "/1") {
+			switch (this.args[0].indicator) {
+			case "true/0": return true;
+			case "false/0": return false;
+			case "null/0": return null;
+			case "undefined/0": return undefined;
+			}
+		}
+		return term2js.apply(this, arguments);
+	};
 }

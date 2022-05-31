@@ -211,7 +211,6 @@ export class PrologDO {
 		let rest: pl.type.State[] = [];
 		for await (const [goal, answer] of answers) {
 			const tmpl: pl.type.Value = req.template ?? goal;
-
 			if (answer.indicator == "throw/1") {
 				const resp: ErrorEvent = {
 					"event": "error",
@@ -223,7 +222,9 @@ export class PrologDO {
 
 			if (!queryGoal && answer.links) {
 				queryGoal = goal;
-				projection = Object.keys(answer.links).map(x => new pl.type.Term(x, []));
+				projection = Object.keys(answer.links).
+					filter(x => !x.startsWith("_")).
+					map(x => new pl.type.Term(x, []));
 			}
 
 			const term = tmpl.apply(answer);
@@ -236,6 +237,8 @@ export class PrologDO {
 			}
 		}
 		rest = query.thread.points;
+		const output = query.output();
+		console.log("OUT?", output);
 
 		if (persist) {
 			this.saveRules();
@@ -251,6 +254,7 @@ export class PrologDO {
 				event: "failure",
 				id: id,
 				time: time,
+				output: output,
 			};
 		} else {
 			event = {
@@ -262,6 +266,7 @@ export class PrologDO {
 				projection: projection,
 				time: time,
 				slave_limit: ARBITRARY_HIGH_NUMBER,
+				output: output,
 			};
 		}
 

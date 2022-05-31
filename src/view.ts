@@ -53,7 +53,7 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 				<section id="query">
 					<form method="GET" id="query-form">
 						<label for="ask">?- </label>
-						<input type="search" name="ask" id="ask"
+						<input type="text" name="ask" id="ask"
 							value="${params.get("ask")}"
 							placeholder="member(X, [1, 2, 3])."
 							list=examples>
@@ -63,7 +63,7 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 				</section>
 
 				<section id="results">
-					${!result && html`
+					${!result && !params.get("src_text") && html`
 						<main>
 							<h2>Welcome</h3>
 							<p>
@@ -213,6 +213,7 @@ function renderAnswersTable(result: any): HTML {
 		`;
 	case "success":
 		return html`
+			<blockquote class="output">${result.output}</blockquote>
 			<table>
 				<thead>
 					<tr>
@@ -220,7 +221,7 @@ function renderAnswersTable(result: any): HTML {
 					</tr>
 				</thead>
 				<tbody>
-					${result?.data?.map(renderAnswerTable)}
+					${result?.data?.map(renderAnswerTable.bind(null, result?.projection))}
 				</tbody>
 			</table>
 		`;
@@ -229,7 +230,7 @@ function renderAnswersTable(result: any): HTML {
 	return html`unknown event: ${result.event}`;
 }
 
-function renderAnswerTable(x: Record<string, any>): HTML {
+function renderAnswerTable(projection: string[], x: Record<string, any>): HTML {
 	const entries = Object.entries(x);
 
 	if (entries.length == 0) {
@@ -240,6 +241,7 @@ function renderAnswerTable(x: Record<string, any>): HTML {
 	return html`
 		<tr>
 			${Object.entries(x).map(function([k, v]) {
+				if (!projection.includes(k)) { return null; }
 				return html`<td>${renderTerm(v)}</td>`;
 			})}
 		</tr>

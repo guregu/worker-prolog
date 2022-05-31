@@ -15,7 +15,9 @@ export interface PengineResponse {
 	code?: string, // error code
 	slave_limit?: number,
 	answer?: PengineResponse,
-	operators?: Map<number, Map<string, string[]>> // priority (number) → op ("fx" "yfx" etc) → names (TODO: unused)
+
+	operators?: Map<number, Map<string, string[]>>, // priority (number) → op ("fx" "yfx" etc) → names (TODO: unused)
+	output?: string,
 }
 
 export interface ErrorEvent extends PengineResponse {
@@ -159,6 +161,7 @@ function makeJSONAnswer(answer: PengineResponse | SuccessEvent, sesh?: Prolog): 
 		"projection": answer.projection.map(x => x.toJavaScript()),
 		"time": answer.time,
 		"slave_limit": ARBITRARY_HIGH_NUMBER,
+		"output": answer.output,
 	};
 }
 
