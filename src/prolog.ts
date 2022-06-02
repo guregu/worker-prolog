@@ -12,7 +12,7 @@ plRand(pl);
 plStats(pl);
 plFmt(pl);
 plChrs(pl);
-betterJSON(pl, "@"); // SWI-ish
+betterJSON(pl);
 
 // Heavily inspired by yarn/berry
 

@@ -1,17 +1,27 @@
 import { html, HTML, unsafeHTML } from "@worker-tools/html";
-import { PengineResponse } from "./pengines";
-import { indexStyle } from "./style";
+import { PengineResponse } from "../response";
+import { favicon, indexStyle } from "./style";
 
 const EXAMPLE_QUERIES: [string, string][] = [
 	["", "permutation(\"dog\", Word)."],
-	["", "between(1, 64, N), Square is N^2."],
-	["", "json_prolog(JS, [a, [b-[c-d]], [hello-world]]), json_atom(JS, JSON)."],
-	["% https://www.j-paine.org/dobbs/prolog_lightbulb.html\nchange_lightbulb(1, porlog_programmer).", "change_lightbulb(HowMany, prolog_programmer)."],
+	["% https://en.wikipedia.org/wiki/Syllogism\n\nhuman(socrates).\nmortal(X) :- human(X).", "mortal(X)."],
+	["fizzbuzz(N) :-\n\tsucc(N, End),\n\tfizzbuzz_(1, End).\n\nfizzbuzz_(N, N).\nfizzbuzz_(N, End) :- \n\tN < End,\n\tsay(N), nl,\n\tsucc(N, N1),\n\tfizzbuzz_(N1, End).\n\nsay(N) :- 0 is N mod 3, write('fizz').\nsay(N) :- 0 is N mod 5, write('buzz').\nsay(N) :-\n\tX is N mod 3,\n\tX \\= 0,\n\tY is N mod 5,\n\tY \\= 0,\n\twrite(N).\n\n% ?- fizzbuzz(10).", "fizzbuzz(10)."],
+	["", "between(1, 32, N), Square is N^2, Cube is N^3."],
+	["% http://www.tau-prolog.org/documentation#js\n% https://github.com/tau-prolog/tau-prolog/issues/299\n:- use_module(library(js)).\n", "json_prolog(_JS, [a, [x-[yes-{true}, no-{false}, '$1b mistake'-{null}]], [hello-prolog, born-1972]]), json_atom(_JS, JSON)."],
+	["% https://www.j-paine.org/dobbs/prolog_lightbulb.html\n\nchange_lightbulb(1, porlog_programmer).", "change_lightbulb(HowMany, prolog_programmer)."],
 ];
 
 export function renderIndex(query: string | null, params: URLSearchParams, result?: PengineResponse) {
 	if (result?.event == "create" && result?.answer) {
 		result = result.answer;
+	}
+	const ask = params.get("ask");
+	const title = ask ? "?- " + ask : "prolog.run";
+	let desc = "run some prolog";
+	if (result && result?.output?.length > 0) {
+		desc = result.output;
+	} else if (result) {
+		desc = renderDescription(result);
 	}
 	return html`
 		<!doctype html>
@@ -20,6 +30,10 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 			<head>
 				<title>prolog.run</title>
 				${indexStyle}
+				${favicon}
+				<meta property="og:title" content="${title}"> 
+				<meta property="og:description" content="${desc}"> 
+				<meta name="twitter:card" content="summary_large_image">
 			</head>
 			<body>
 				<header>
@@ -46,7 +60,8 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 					</details>
 				</section>
 
-				<section id="src">
+				<section id="src" class="growtext">
+					<div class="spacer" aria-hidden="true">${params.get("src_text")}</div>
 					<textarea id="src_text" name="src_text" form="query-form" placeholder="% Prolog code goes here">${params.get("src_text")}</textarea>
 				</section>
 
@@ -54,7 +69,7 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 					<form method="GET" id="query-form">
 						<label for="ask">?- </label>
 						<input type="text" name="ask" id="ask"
-							value="${params.get("ask")}"
+							value="${ask}"
 							placeholder="member(X, [1, 2, 3])."
 							list=examples>
 						<input type="submit" value="Query">
@@ -71,11 +86,20 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 								Need RPC? <a href="https://www.swi-prolog.org/pldoc/doc_for?object=section(%27packages/pengines.html%27)" target="_blank">Pengines</a> API supported as well.
 								<br><br>
 								
-								👷 Under Construction 🚧 
+								Powered by <a href="https://github.com/tau-prolog/tau-prolog">Tau Prolog</a> and Cloudflare Workers.
 							</p>
-							<h3>Example queries:</h3>
+							<h3>Example queries</h3>
 							<ul>
 								${EXAMPLE_QUERIES.map(([src, ask]) => html`<li><a href="?ask=${ask}&src_text=${unsafeHTML(encodeURIComponent(src))}">${ask}</a></li>`)}
+							</ul>
+							<h3>Documentation</h3>
+							<ul>
+								<li><a href="http://www.tau-prolog.org/documentation" target="_blank">Tau Prolog reference</a></li>
+								<li><a href="https://www.swi-prolog.org/pldoc/doc_for?object=section(%27packages/pengines.html%27)" target="_blank">Pengines (RPC) API reference</a></li>
+							</ul>
+							<h3>Learn Prolog</h3>
+							<ul>
+								<li><a href="https://www.metalevel.at/prolog" target="_blank">The Power of Prolog</a></li>
 							</ul>
 						</main>
 					`}
@@ -102,17 +126,43 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 
 SRC_TEXT = document.getElementById("src_text");
 // support tabs in editor
-SRC_TEXT.addEventListener("keydown", (e) => {
+SRC_TEXT.addEventListener("keydown", function(e) {
 	if (e.key == "Tab" && !e.shiftKey) {
 		e.preventDefault()
 		e.target.setRangeText(
-			"\t",
+			"\\t",
 			e.target.selectionStart,
 			e.target.selectionStart,
 			"end"
 		);
+	} else if (e.key == "Enter") {
+		const caret = e.target.selectionStart;
+		const lineStart = e.target.value.lastIndexOf("\\n", caret-1) + 1;
+		const line = e.target.value.slice(lineStart, caret);
+		if (line.startsWith("\\t") && !line.trim().endsWith(".")) {
+			for (var ct = 0; ct < line.length && line[ct] == "\\t"; ct++) {}
+			const tab = "\\t".repeat(ct);
+			e.preventDefault();
+			e.target.setRangeText(
+				"\\n" + tab,
+				e.target.selectionStart,
+				e.target.selectionStart,
+				"end"
+			);
+		}
 	}
+	updateSpacer(e.target);
 });
+SRC_TEXT.addEventListener("input", function(e) {
+	updateSpacer(e.target);
+})
+function updateSpacer(textarea) {
+	const spacer = textarea.parentElement.querySelector(".spacer");
+	if (spacer) {
+		spacer.textContent = textarea.value + "\\u200b";
+	}
+}
+
 
 EXAMPLE_SIGIL = "% ?- ";
 function refreshExamples() {
@@ -133,7 +183,6 @@ function refreshExamples() {
 }
 document.addEventListener("DOMContentLoaded", refreshExamples);
 SRC_TEXT.addEventListener("blur", refreshExamples);
-
 				</script>
 			</body>
 		</html>
@@ -240,13 +289,39 @@ function renderAnswerTable(projection: string[], x: Record<string, any>): HTML {
 	/* eslint-disable indent */
 	return html`
 		<tr>
-			${Object.entries(x).map(function([k, v]) {
+			${entries.map(function([k, v]) {
 				if (!projection.includes(k)) { return null; }
 				return html`<td>${renderTerm(v)}</td>`;
 			})}
 		</tr>
 	`;
 	/* eslint-enable */
+}
+
+function renderDescription(result: PengineResponse): string {
+	switch (result.event) {
+	case "failure":
+		return "💡 no";
+	case "error":
+		return `😵 error: ${renderTermText(result?.data)}`;
+	}
+
+	let projection = result.projection ?? [];
+	let data = result?.data;
+	if (!data) {
+		return "(empty)";
+	}
+
+	return data.map(function(x) {
+		const entries = Object.entries(x);
+		if (entries.length == 0) {
+			return "👍 yes";
+		}
+		return entries.map(function([k, v]) {
+			if (!projection.includes(k)) { return null; }
+			return `${k} = ${renderTermText(v)}`;
+		}).join(", ");
+	}).join(" ;\n") + ".";
 }
 
 function renderTerm(x: any): HTML {
@@ -296,5 +371,41 @@ function renderTerm(x: any): HTML {
 
 		// hail mary
 		return html`??? ${JSON.stringify(x)}`;
+	}
+}
+
+
+function renderTermText(x: any): string {
+	switch (typeof x) {
+	case "number":
+	case "string":
+		return `${x}`;
+	default:
+		if (x == null) {
+			return "null";
+		}
+		
+		// lists
+		if (Array.isArray(x)) {
+			return `[${x.map(renderTermText).join(", ")}]`;
+		}
+
+		if (typeof x.pretty == "string") {
+			return x.pretty;
+		}
+
+		// compound
+		if (typeof x.functor == "string") {
+			return `${x.functor}(${x.args.map(function(v: any, i: number) {
+				const result = renderTermText(v);
+				if (i > 0) {
+					return `, ${result}`;
+				}
+				return `${result}`;
+			})})`;
+		}
+
+		// hail mary
+		return `??? ${x}`;
 	}
 }

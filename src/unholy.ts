@@ -84,7 +84,7 @@ export function replacer(this, k, x): any {
 	if (typeof x == "object" && x != null) {
 		const proto = Object.getPrototypeOf(x);
 		const name = proto.constructor.name;
-		if (name == "Object") {
+		if (name === "Object") {
 			return x;
 		}
 		if (proto) {
@@ -94,7 +94,7 @@ export function replacer(this, k, x): any {
 	return x;
 }
 
-export function makeReviver(types?: {} = globalThis) {
+export function makeReviver(types: {} = globalThis) {
 	return function(k, v) {
 		if (typeof v !== "object" || v == null) {
 			return v;

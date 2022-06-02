@@ -6,7 +6,7 @@ Serverless persistent Prolog via [Tau Prolog](http://www.tau-prolog.org/) and [C
 
 ## Demo
 
-👉 https://prolog.run (persistence disabled to prevent abuse... for now)
+👉 https://prolog.run
 
 ## Thanks
 

@@ -1,7 +1,8 @@
 import { HTMLResponse } from "@worker-tools/html";
 
-import { renderIndex } from "./view";
-import { DEFAULT_APPLICATION, PengineRequest, PengineResponse } from "./pengines";
+import { DEFAULT_APPLICATION, PengineRequest } from "./pengines";
+import { PengineResponse } from "./response";
+import { renderIndex } from "./views/index";
 import { renderPengine } from "./views/pengine";
 
 export default {

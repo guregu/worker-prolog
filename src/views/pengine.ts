@@ -1,6 +1,6 @@
-import { html, HTML, unsafeHTML } from "@worker-tools/html";
+import { html, HTML } from "@worker-tools/html";
 import { PengineRequest } from "../pengines";
-import { indexStyle } from "../style";
+import { indexStyle } from "./style";
 
 export interface Pengine {
 	id: string,
