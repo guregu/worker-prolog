@@ -101,7 +101,6 @@ export class PrologDO {
 
 	async saveRules(meta?: PengineMetadata, module = "user") {
 		const app = this.state.id.toString();
-
 		if (meta) {
 			this.meta.put(app, meta);
 		}

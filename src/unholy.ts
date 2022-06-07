@@ -78,9 +78,9 @@ export class Store<T> {
 	}
 }
 
-export function replacer(_, k, v): any {
+export function replacer(k, v): any {
 	if (Array.isArray(v)) {
-		return v.map(function(x) { return replacer(null, x); });
+		return v.map(function(x, y) { return replacer(y, x); });
 	}
 	if (typeof v == "object" && v != null) {
 		const proto = Object.getPrototypeOf(v);
@@ -103,7 +103,7 @@ export function makeReviver(types: Record<string, any> = globalThis) {
 		if (typeof v[PROTO_KEY] !== "string") {
 			return v;
 		}
-		const proto = types[PROTO_KEY];
+		const proto = types[v[PROTO_KEY]];
 		if (!proto || !proto?.prototype) {
 			return v;
 		}

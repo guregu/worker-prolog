@@ -165,6 +165,7 @@ export function toProlog(x: any): pl.type.Value {
 		}
 
 		// hail mary
+		console.log("UNKNOWN TERM???", x);
 		return new pl.type.Term("???", [new pl.type.Term(`${x}`, [])]);
 	}
 }

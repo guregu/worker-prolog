@@ -16,7 +16,6 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 	if (result?.event == "create" && result?.answer) {
 		result = result.answer;
 	}
-	console.log("META", meta, "REZULT", result);
 	const ask = params.get("ask");
 	const title = ask ? "?- " + ask : "prolog.run";
 	let desc = "run some Prolog online real quick, just type in the code and go";
@@ -279,7 +278,7 @@ function renderAnswersTable(result: any): HTML {
 			</table>
 		`;
 	case "create":
-		break;
+		return html``;
 	}
 
 	return html`unknown event: ${result.event}`;
