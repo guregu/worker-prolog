@@ -1,4 +1,5 @@
-const CURRENT_VERSION = 0;
+const CURRENT_VERSION = 1;
+const PROTO_KEY = "$$proto";
 
 export class Store<T> {
 	storage: DurableObjectStorage;
@@ -77,36 +78,36 @@ export class Store<T> {
 	}
 }
 
-export function replacer(this, k, x): any {
-	if (Array.isArray(x)) {
-		return x.map(function(v) { return replacer(null, v); });
+export function replacer(_, k, v): any {
+	if (Array.isArray(v)) {
+		return v.map(function(x) { return replacer(null, x); });
 	}
-	if (typeof x == "object" && x != null) {
-		const proto = Object.getPrototypeOf(x);
+	if (typeof v == "object" && v != null) {
+		const proto = Object.getPrototypeOf(v);
 		const name = proto.constructor.name;
 		if (name === "Object") {
-			return x;
+			return v;
 		}
 		if (proto) {
-			return {...x, "_proto": name};
+			return {...v, [PROTO_KEY]: name};
 		}
 	}
-	return x;
+	return v;
 }
 
-export function makeReviver(types: {} = globalThis) {
+export function makeReviver(types: Record<string, any> = globalThis) {
 	return function(k, v) {
 		if (typeof v !== "object" || v == null) {
 			return v;
 		}
-		if (typeof v._proto !== "string") {
+		if (typeof v[PROTO_KEY] !== "string") {
 			return v;
 		}
-		const proto = types[v._proto];
+		const proto = types[PROTO_KEY];
 		if (!proto || !proto?.prototype) {
 			return v;
 		}
-		delete v._proto;
+		delete v[PROTO_KEY];
 		Object.setPrototypeOf(v, proto.prototype);
 		return v;
 	};

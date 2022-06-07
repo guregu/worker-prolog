@@ -40,7 +40,8 @@ export default {
 		}
 
 		if (url.pathname.startsWith("/p/")) {
-			const resp = await stub.fetch(new Request(url.toString(), {
+			// const id = url.pathname.slice("/p/".length);
+			const resp = await stub.fetch(new Request("https://example.com/meta", {
 				// method: "POST",
 				// body: JSON.stringify(req),
 				// headers: {
@@ -48,7 +49,8 @@ export default {
 				// }
 			}));
 			const result = await resp.json();
-			const content = renderPengine(result);
+			console.log("RESULT", result);
+			const content = renderPengine(result, url.searchParams);
 			return new HTMLResponse(content);
 		}
 
@@ -56,16 +58,18 @@ export default {
 		console.log("form", form);
 
 		const ask = form.get("ask");
+		const src_url = form.get("src_url");
+		const src_text = form.get("src_text");
 		let result: PengineResponse | undefined;
-		if (ask) {
-			console.log("asking", id, ask);
+		if (ask || src_text || src_url) {
+			console.log("asking", id, ask, src_text, src_url);
 			const req: Partial<PengineRequest> = {
 				id: idParam ?? undefined,
 				ask: ask,
 				application: app,
 				format: "json",
-				src_text: url.searchParams.get("src_text") ?? undefined,
-				src_url: url.searchParams.get("src_url") ?? undefined,
+				src_text: src_text ?? undefined,
+				src_url: src_url ?? undefined,
 			};
 			const resp = await stub.fetch(new Request("http://example.com/pengine/create", {
 				method: "POST",

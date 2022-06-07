@@ -5,19 +5,21 @@ import { favicon, indexStyle } from "./style";
 const EXAMPLE_QUERIES: [string, string][] = [
 	["", "permutation(\"dog\", Word)."],
 	["% https://en.wikipedia.org/wiki/Syllogism\n\nhuman(socrates).\nmortal(X) :- human(X).", "mortal(X)."],
-	["fizzbuzz(N) :-\n\tsucc(N, End),\n\tfizzbuzz_(1, End).\n\nfizzbuzz_(N, N).\nfizzbuzz_(N, End) :- \n\tN < End,\n\tsay(N), nl,\n\tsucc(N, N1),\n\tfizzbuzz_(N1, End).\n\nsay(N) :- 0 is N mod 3, write('fizz').\nsay(N) :- 0 is N mod 5, write('buzz').\nsay(N) :-\n\tX is N mod 3,\n\tX \\= 0,\n\tY is N mod 5,\n\tY \\= 0,\n\twrite(N).\n\n% ?- fizzbuzz(10).", "fizzbuzz(10)."],
+	["fizzbuzz(N) :-\n\tsucc(N, End),\n\tfizzbuzz_(1, End).\n\nfizzbuzz_(N, N).\nfizzbuzz_(N, End) :- \n\tN < End,\n\tfindall(_, say(N), _), nl,\n\tsucc(N, N1),\n\tfizzbuzz_(N1, End).\n\nsay(N) :- 0 is N mod 3, write('fizz').\nsay(N) :- 0 is N mod 5, write('buzz').\nsay(N) :-\n\tX is N mod 3,\n\tX \\= 0,\n\tY is N mod 5,\n\tY \\= 0,\n\twrite(N).\n\n% ?- fizzbuzz(15).", "fizzbuzz(15)."],
 	["", "between(1, 32, N), Square is N^2, Cube is N^3."],
 	["% http://www.tau-prolog.org/documentation#js\n% https://github.com/tau-prolog/tau-prolog/issues/299\n:- use_module(library(js)).\n", "json_prolog(_JS, [a, [x-[yes-{true}, no-{false}, '$1b mistake'-{null}]], [hello-prolog, born-1972]]), json_atom(_JS, JSON)."],
 	["% https://www.j-paine.org/dobbs/prolog_lightbulb.html\n\nchange_lightbulb(1, porlog_programmer).", "change_lightbulb(HowMany, prolog_programmer)."],
 ];
 
 export function renderIndex(query: string | null, params: URLSearchParams, result?: PengineResponse) {
+	const meta = result?.meta ?? result?.answer?.meta ?? result?.data?.meta;
 	if (result?.event == "create" && result?.answer) {
 		result = result.answer;
 	}
+	console.log("META", meta, "REZULT", result);
 	const ask = params.get("ask");
 	const title = ask ? "?- " + ask : "prolog.run";
-	let desc = "run some prolog";
+	let desc = "run some Prolog online real quick, just type in the code and go";
 	if (result && result?.output?.length > 0) {
 		desc = result.output;
 	} else if (result) {
@@ -61,8 +63,10 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 				</section>
 
 				<section id="src" class="growtext">
-					<div class="spacer" aria-hidden="true">${params.get("src_text")}</div>
-					<textarea id="src_text" name="src_text" form="query-form" placeholder="% Prolog code goes here">${params.get("src_text")}</textarea>
+					<div class="spacer" aria-hidden="true">${meta?.src_text ?? params.get("src_text")}</div>
+					<textarea id="src_text" name="src_text" form="query-form"
+						class="${meta?.src_text && "loaded"}" spellcheck="false"
+						placeholder="% Prolog code goes here">${meta?.src_text ?? params.get("src_text")}</textarea>
 				</section>
 
 				<section id="query">
@@ -117,7 +121,7 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 				<br>
 				
 				<footer>
-				 <div class="fleuron">⬥ ❦ ⬥</div>
+					<div class="fleuron">⬥ ❦ ⬥</div>
 					${typeof result?.time == "number" && html`<small>query time: ${result.time} sec</small><br>`}
 					<a href="https://github.com/guregu/worker-prolog" target="_blank">worker-prolog</a>
 				</footer>
@@ -274,6 +278,8 @@ function renderAnswersTable(result: any): HTML {
 				</tbody>
 			</table>
 		`;
+	case "create":
+		break;
 	}
 
 	return html`unknown event: ${result.event}`;

@@ -1,6 +1,6 @@
 import pl from "tau-prolog";
 import { JSONResponse } from "@worker-tools/json-fetch";
-import { ARBITRARY_HIGH_NUMBER } from "./pengines";
+import { ARBITRARY_HIGH_NUMBER, PengineMetadata } from "./pengines";
 import { functor, makeList, Prolog, toProlog } from "./prolog";
 
 /* eslint-disable no-case-declarations */
@@ -18,6 +18,7 @@ export interface PengineResponse {
 
 	operators?: Map<number, Map<string, string[]>>, // priority (number) → op ("fx" "yfx" etc) → names (TODO: unused)
 	output?: string,
+	meta?: PengineMetadata,
 }
 
 export interface ErrorEvent extends PengineResponse {
@@ -154,14 +155,15 @@ function makeJSONAnswer(answer: PengineResponse | SuccessEvent, sesh?: Prolog): 
 		return obj;
 	});
 	return {
-		"event": "success",
-		"data": data,
-		"id": answer.id,
-		"more": answer.more,
-		"projection": answer.projection.map(x => x.toJavaScript()),
-		"time": answer.time,
-		"slave_limit": ARBITRARY_HIGH_NUMBER,
-		"output": answer.output,
+		event: "success",
+		data: data,
+		id: answer.id,
+		more: answer.more,
+		projection: answer.projection.map(x => x.toJavaScript()),
+		time: answer.time,
+		slave_limit: ARBITRARY_HIGH_NUMBER,
+		output: answer.output,
+		meta: answer.meta,
 	};
 }
 

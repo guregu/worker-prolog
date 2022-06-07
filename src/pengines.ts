@@ -3,7 +3,7 @@ import { JSONResponse } from "@worker-tools/json-fetch";
 
 import { Prolog, makeList, makeError, functor, toProlog, Query } from "./prolog";
 import { replacer, makeReviver, Store } from "./unholy";
-import { formatResponse, PengineResponse, serializeTerm } from "./response";
+import { ErrorEvent, formatResponse, PengineResponse, prologResponse, serializeTerm } from "./response";
 
 export const DEFAULT_APPLICATION = "pengine_sandbox";
 
@@ -26,22 +26,31 @@ export interface PengineRequest {
 	cmd: "create" | "destroy" | "ask" | "next" | "stop";
 }
 
+export interface PengineMetadata {
+	src_text?: string,
+	src_urls: string[],
+	title: string,
+}
 
 export class PrologDO {
 	state: DurableObjectState;
 	sesh: Prolog;
-	src_urls: string[] = [];
+	consulted_urls: string[] = [];
 	req?: Partial<PengineRequest>;
 
 	points: Store<pl.type.State[]>;
 	query: Store<Partial<PengineRequest>>;
 	rules: Store<pl.type.Rule[]>;
+	meta: Store<PengineMetadata>;
+	// src_urls: Store<string[]>;
+	// src_text: Store<string>;
 
 	constructor(state: DurableObjectState, env: any) {
 		this.state = state;
 		this.points = new Store(this.state.storage, "points", pl.type);
 		this.query = new Store(this.state.storage, "query", pl.type);
 		this.rules = new Store(this.state.storage, "rules", pl.type);
+		this.meta = new Store(this.state.storage, "meta", pl.type);
 		this.state.blockConcurrencyWhile(async () => {
 			this.sesh = await this.loadInterpreter();
 			await this.loadRules();
@@ -62,10 +71,19 @@ export class PrologDO {
 			return this.pengineHandle(request);
 		case "/pengine/ping":
 			return this.penginePing(request);
+		case "/meta":
+			return this.handleMeta(request);
 		default:
 			console.log("404:", url.pathname);
 			return new Response("not found", { status: 404 });
 		}
+	}
+
+	async handleMeta(request): Promise<Response> {
+		const id = this.state.id.toString();
+		await this.loadRules();
+		const resp = await this.meta.get(id) ?? {};
+		return new JSONResponse(resp);
 	}
 
 	async loadInterpreter(): Promise<Prolog> {
@@ -73,22 +91,25 @@ export class PrologDO {
 		return sesh;
 	}
 
-	async loadRules(module = "user") {
+	async loadRules(module = "user"): Promise<PengineMetadata | undefined> {
 		const app = this.state.id.toString();
 		const mod = await this.rules.record(app, module);
 		loadModule(this.sesh.session.modules[module], mod);
+
+		return this.meta.get(app);
 	}
 
-	async saveRules(module = "user") {
+	async saveRules(meta?: PengineMetadata, module = "user") {
 		const app = this.state.id.toString();
-		const rules: Record<string, pl.type.Rule[]> = this.sesh.session.modules[module]?.rules;
-		if (!rules) {
-			return false;
+
+		if (meta) {
+			this.meta.put(app, meta);
 		}
-		this.rules.putRecord(app, module, rules);
-		// for (const [pi, rule] of Object.entries(rules)) {
-		// 	await this.rules.putRecordItem(app, module, pi, rule);
-		// }
+		const rules: Record<string, pl.type.Rule[]> = this.sesh.session.modules[module]?.rules;
+		if (rules) {
+			this.rules.putRecord(app, module, rules);
+		}
+
 		console.log("saved", app, module);
 	}
 
@@ -115,14 +136,21 @@ export class PrologDO {
 	}
 
 	async exec(id: string, req: Partial<PengineRequest>, start: number, persist: boolean): Promise<PengineResponse> {
+		const meta: PengineMetadata = (await this.loadRules()) ?? {src_urls: [], title: "prolog~"};
+		const [parentReq, next] = await this.loadState(id);
+
+		console.log("##############", meta, parentReq, next);
+
 		if (req.stop) {
 			console.log("TODO: stop", req);	
 			if (persist) {
 				this.saveRules();
+				// TODO: this.deleteState(id);
 			}
 			return {
 				event: "stop",
 				id: id,
+				meta: meta,
 			};
 		}
 		if (req.destroy) {
@@ -133,18 +161,18 @@ export class PrologDO {
 			return {
 				event: "destroy",
 				id: id,
+				meta: meta,
 			};
 		}
-
-		await this.loadRules();
-		const [parentReq, next] = await this.loadState(id);
+		
 
 		if (req.src_text) {
-			// TODO: fancier reconsult
 			this.sesh.session.consult(req.src_text, {
 				reconsult: true,
 				url: false,
+				html: false,
 				success: function() {
+					meta.src_text = req.src_text;
 					console.log("consulted text:", req.src_text);
 				},
 				error: function(err: any) {
@@ -154,41 +182,46 @@ export class PrologDO {
 			});
 		}
 
-		if (req.src_url) {
-			if (!this.src_urls.includes(req.src_url)) {
-				const resp = await fetch(new Request(req.src_url));
+		if (req.src_url && !meta.src_urls.includes(req.src_url)) {
+			meta.src_urls.push(req.src_url);
+		}
+
+		for (const url of meta.src_urls) {
+			if (!this.consulted_urls.includes(url)) {
+				const resp = await fetch(new Request(url));
 				if (resp.status != 200) {
-					throw makeError("consult_error", functor("bad_status", resp.status), req.src_url);
+					throw makeError("consult_error", functor("bad_status", resp.status), url);
 				}
 				const prog = await resp.text();
 
-				console.log("consulted url", req.src_url, prog.slice(0, 64));
+				console.log("consulted url", url, prog.slice(0, 64));
 				this.sesh.session.consult(prog, {
 					reconsult: true,
 					url: false,
 					html: false,
 					success: function() {
-						console.log("consulted url:", req.src_url, prog.length);
-						this.src_urls.push(req.src_url);
+						console.log("consulted url:", url, prog.length);
+						this.consulted_urls.push(url);
 					}.bind(this),
 					error: function(err: any) {
 						console.error("invalid src_url text:", prog);
-						throw makeError("consult_error", err, functor("src_url", req.src_url));
+						throw makeError("consult_error", err, functor("src_url", url));
 					}
 				});
 			} else {
-				console.log("already loaded:", req.src_url);
+				console.log("already loaded:", url);
 			}
 		}
 
 		if (!req.ask && !req.next) {
 			if (persist) {
-				this.saveRules();
+				this.saveRules(meta);
 			}
 			return {
 				event: "create",
 				id: id,
 				slave_limit: ARBITRARY_HIGH_NUMBER,
+				meta: meta,
 			};
 		}
 
@@ -213,9 +246,10 @@ export class PrologDO {
 			const tmpl: pl.type.Value = req.template ?? goal;
 			if (answer.indicator == "throw/1") {
 				const resp: ErrorEvent = {
-					"event": "error",
-					"id": id,
-					"data": answer.args[0],
+					event: "error",
+					id: id,
+					data: answer.args[0],
+					meta: meta,
 				};
 				return resp;
 			}
@@ -241,7 +275,7 @@ export class PrologDO {
 		console.log("OUT?", output);
 
 		if (persist) {
-			this.saveRules();
+			this.saveRules(meta);
 		}
 		const more = await this.saveState(id, parentReq ?? req, rest);
 
@@ -255,6 +289,7 @@ export class PrologDO {
 				id: id,
 				time: time,
 				output: output,
+				meta: meta,
 			};
 		} else {
 			event = {
@@ -267,6 +302,7 @@ export class PrologDO {
 				time: time,
 				slave_limit: ARBITRARY_HIGH_NUMBER,
 				output: output,
+				meta: meta,
 			};
 		}
 
