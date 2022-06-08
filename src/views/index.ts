@@ -5,7 +5,7 @@ import { favicon, indexStyle } from "./style";
 const EXAMPLE_QUERIES: [string, string][] = [
 	["", "permutation(\"dog\", Word)."],
 	["% https://en.wikipedia.org/wiki/Syllogism\n\nhuman(socrates).\nmortal(X) :- human(X).", "mortal(X)."],
-	["fizzbuzz(N) :-\n\tsucc(N, End),\n\tfizzbuzz_(1, End).\n\nfizzbuzz_(N, N).\nfizzbuzz_(N, End) :- \n\tN < End,\n\tfindall(_, say(N), _), nl,\n\tsucc(N, N1),\n\tfizzbuzz_(N1, End).\n\nsay(N) :- 0 is N mod 3, write('fizz').\nsay(N) :- 0 is N mod 5, write('buzz').\nsay(N) :-\n\tX is N mod 3,\n\tX \\= 0,\n\tY is N mod 5,\n\tY \\= 0,\n\twrite(N).\n\n% ?- fizzbuzz(15).", "fizzbuzz(15)."],
+	["fizzbuzz(N, Max) :- \n	N =< Max,\n	findall(_, say(N), _), nl,\n	succ(N, N1),\n	fizzbuzz(N1, Max).\nfizzbuzz(N, Max) :- succ(Max, N).\n\nsay(N) :- 0 is N mod 3, write('fizz').\nsay(N) :- 0 is N mod 5, write('buzz').\nsay(N) :-\n	X is N mod 3,\n	X \\= 0,\n	Y is N mod 5,\n	Y \\= 0,\n	write(N).\n\n% ?- fizzbuzz(1, 15)", "fizzbuzz(1, 15)."],
 	["", "between(1, 32, N), Square is N^2, Cube is N^3."],
 	["% http://www.tau-prolog.org/documentation#js\n% https://github.com/tau-prolog/tau-prolog/issues/299\n:- use_module(library(js)).\n", "json_prolog(_JS, [a, [x-[yes-{true}, no-{false}, '$1b mistake'-{null}]], [hello-prolog, born-1972]]), json_atom(_JS, JSON)."],
 	["% https://www.j-paine.org/dobbs/prolog_lightbulb.html\n\nchange_lightbulb(1, porlog_programmer).", "change_lightbulb(HowMany, prolog_programmer)."],
