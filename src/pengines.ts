@@ -1,8 +1,9 @@
 import pl from "tau-prolog";
 import { JSONResponse } from "@worker-tools/json-fetch";
 
-import { Prolog, makeList, makeError, functor, toProlog, Query } from "./prolog";
-import { replacer, makeReviver, Store } from "./unholy";
+import { Prolog, makeError, functor, toProlog, Query } from "./prolog";
+import { dumpModule, PrologDO } from "./prolog-do";
+import { Store } from "./unholy";
 import { ErrorEvent, formatResponse, PengineResponse, prologResponse, serializeTerm } from "./response";
 import { Env } from ".";
 
@@ -36,31 +37,23 @@ export interface PengineMetadata {
 	app_src?: string
 }
 
-export class PrologDO {
-	state: DurableObjectState;
+export class PengineDO extends PrologDO {
 	env: Env;
-	sesh: Prolog;
 	consulted_urls: string[] = [];
 	req?: Partial<PengineRequest>;
 
 	points: Store<pl.type.State[]>;
 	query: Store<Partial<PengineRequest>>;
-	rules: Store<pl.type.Rule[]>;
 	meta: Store<PengineMetadata>;
 
 	appSocket?: WebSocket;
 
 	constructor(state: DurableObjectState, env: Env) {
-		this.state = state;
+		super(state, env);
 		this.env = env;
 		this.points = new Store(this.state.storage, "points", pl.type);
 		this.query = new Store(this.state.storage, "query", pl.type);
-		this.rules = new Store(this.state.storage, "rules", pl.type);
 		this.meta = new Store(this.state.storage, "meta", pl.type);
-		this.state.blockConcurrencyWhile(async () => {
-			this.sesh = await this.loadInterpreter();
-			await this.loadRules();
-		});	  
 	}
 
 	async fetch(request: Request) {
@@ -85,43 +78,9 @@ export class PrologDO {
 		}
 	}
 
-	async handleMeta(request): Promise<Response> {
-		await this.loadRules();
+	async handleMeta(request: Request): Promise<Response> {
 		const resp = await this.meta.get() ?? {};
 		return new JSONResponse(resp);
-	}
-
-	async loadInterpreter(): Promise<Prolog> {
-		const sesh = new Prolog();
-		return sesh;
-	}
-
-	async loadRules(module = "user"): Promise<PengineMetadata | undefined> {
-		const mod = await this.rules.record(module);
-		for (const [pi, rs] of Object.entries(mod)) {
-			for (const r of rs) {
-				this.sesh.session.add_rule(r, {from: "$storage", context_module: module});
-			}
-		}
-		// loadModule(this.sesh.session.modules[module], mod);
-
-		return this.meta.get();
-	}
-
-	async saveRules(meta?: PengineMetadata, module = "user") {
-		if (meta) {
-			this.meta.put(meta);
-		}
-		const rules: Record<string, pl.type.Rule[]> = this.sesh.session.modules[module]?.rules;
-		if (rules) {
-			for (const [pi, rule] of Object.entries(rules)) {
-				console.log("SRC_PRED", pi, rule, this.sesh.session.modules[module].src_predicates[pi]);
-				this.rules.putRecordItem(module, pi, rule);
-				// this.rules.putRecord(app, module, rules);
-			}
-		}
-
-		console.log("saved", module);
 	}
 
 	async loadState(): Promise<[Partial<PengineRequest> | undefined, pl.type.State[]]> {
@@ -141,7 +100,7 @@ export class PrologDO {
 	}
 
 	async exec(id: string, req: Partial<PengineRequest>, start: number, persist: boolean): Promise<PengineResponse> {
-		const meta: PengineMetadata = (await this.loadRules()) ?? {src_urls: [], title: "prolog~"};
+		const meta: PengineMetadata = (await this.meta.get()) ?? {src_urls: [], title: "prolog~"};
 		const [parentReq, next] = await this.loadState();
 
 		console.log("##############", meta, parentReq, next);
@@ -149,7 +108,7 @@ export class PrologDO {
 		if (req.stop) {
 			console.log("TODO: stop", req);	
 			if (persist) {
-				this.saveRules();
+				this.save();
 				// TODO: this.deleteState(id);
 			}
 			return {
@@ -161,7 +120,7 @@ export class PrologDO {
 		if (req.destroy) {
 			console.log("TODO: destroy", req);
 			if (persist) {
-				this.saveRules();
+				this.save();
 			}
 			return {
 				event: "destroy",
@@ -170,6 +129,7 @@ export class PrologDO {
 			};
 		}
 
+		// synchronize with Pengine application DO
 		if (req.application && req.application != DEFAULT_APPLICATION) {
 			meta.application = req.application;
 			const app = this.env.PENGINES_APP_DO.get(
@@ -177,56 +137,31 @@ export class PrologDO {
 			
 			// TODO: websocket stuff
 			{
-				// console.log("RDY?", this.appSocket, this.appSocket?.readyState);
-				// if (!this.appSocket || this.appSocket.readyState !== this.appSocket.OPEN) {
-				// 	const resp = await app.fetch(`http://${req.application}`, {
-				// 		headers: {
-				// 			Upgrade: "websocket",
-				// 		},
-				// 	});
+				console.log("RDY?", this.appSocket, this.appSocket?.readyState);
+				if (!this.appSocket || this.appSocket.readyState !== 1) {
+					const resp = await app.fetch(`http://${req.application}/${id}`, {
+						headers: {
+							Upgrade: "websocket",
+						},
+					});
 
-				// 	const ws = resp.webSocket;
-				// 	if (!ws) {
-				// 		throw new Error("server didn't accept WebSocket");
-				// 	}
+					const ws = resp.webSocket;
+					if (!ws) {
+						throw new Error("server didn't accept WebSocket");
+					}
 
-				// 	ws.accept();
-				// 	this.appSocket = ws;
-				// 	console.log("contexted", ws);
+					ws.accept();
+					this.appSocket = ws;
+					console.log("contexted", ws);
 
-				// 	// Now you can send and receive messages like before.
-				// 	ws.send("hello");
-				// 	ws.addEventListener("message", msg => {
-				// 		console.log("GOTMSG", msg);
-				// 	});
-				// }
-			}	
-
-			const update = new Request(`http://${req.application}/dump.pl`);
-			const result = await app.fetch(update);
-			const prog = await result.text();
-			if (!result.ok) {
-				throw makeError("consult_app_error", result.status);
-			}
-			meta.app_src = prog;
-			this.sesh.session.modules.app = new pl.type.Module("app", {}, "all", {
-				session: this.sesh.session,
-				dependencies: ["system"]
-			});
-			this.sesh.session.consult(prog, {
-				from: "$pengines-app",
-				context_module: "app",
-				reconsult: true,
-				url: false,
-				html: false,
-				success: function() {
-					console.log("synced w/ app");
-				}.bind(this),
-				error: function(err) {
-					console.error("invalid app text:", prog);
-					throw makeError("consult_error", err, functor("application", req.application));
+					ws.send("hello");
+					ws.addEventListener("message", async (msg: MessageEvent) => {
+						console.log("upd88:", msg.data);
+						await this.run(msg.data);
+					});
+					await this.syncApp(app, req, meta);
 				}
-			});
+			}	
 		}
 
 		if (req.src_url && !meta.src_urls.includes(req.src_url)) {
@@ -242,16 +177,16 @@ export class PrologDO {
 				const prog = await resp.text();
 
 				console.log("consulted url", url, prog.slice(0, 64));
-				this.sesh.session.consult(prog, {
+				this.pl.session.consult(prog, {
 					from: url,
 					reconsult: true,
 					url: false,
 					html: false,
-					success: function() {
+					success: () => {
 						console.log("consulted url:", url, prog.length);
 						this.consulted_urls.push(url);
-					}.bind(this),
-					error: function(err: any) {
+					},
+					error: (err: unknown) => {
 						console.error("invalid src_url text:", prog);
 						throw makeError("consult_error", err, functor("src_url", url));
 					}
@@ -262,16 +197,16 @@ export class PrologDO {
 		}
 
 		if (req.src_text) {
-			this.sesh.session.consult(req.src_text, {
+			this.pl.session.consult(req.src_text, {
 				from: "$src_text",
 				reconsult: true,
 				url: false,
 				html: false,
-				success: function() {
+				success: () => {
 					meta.src_text = req.src_text;
 					console.log("consulted text:", req.src_text);
 				},
-				error: function(err: any) {
+				error: (err: unknown) => {
 					console.error("invalid src_text:", req.src_text);
 					throw makeError("consult_error", err, "src_text");
 				}
@@ -280,7 +215,8 @@ export class PrologDO {
 
 		if (!req.ask && !req.next) {
 			if (persist) {
-				this.saveRules(meta);
+				this.meta.put(meta);
+				this.save();
 			}
 			return {
 				event: "create",
@@ -296,9 +232,9 @@ export class PrologDO {
 		// const answers = this.sesh.query(req.ask);
 		let query: Query;
 		if (req.ask) {
-			query = new Query(this.sesh.session, req.ask);
+			query = new Query(this.pl.session, req.ask);
 		} else {
-			query = new Query(this.sesh.session, next);
+			query = new Query(this.pl.session, next);
 		}
 		const answers = query.answer();
 		const results = [];
@@ -331,7 +267,7 @@ export class PrologDO {
 			links.push(answer.links);
 
 			if (chunk == results.length) {
-				console.log("chunkin'", req.chunk, rest, "SESH", this.sesh);
+				console.log("chunkin'", req.chunk, rest, "SESH", this.pl);
 				break;
 			}
 		}
@@ -347,13 +283,16 @@ export class PrologDO {
 				}
 			}
 			if (req.application && req.application != DEFAULT_APPLICATION && appTx.length > 0) {
-				const txQuery = tx.map(t => t.toString({session: this.sesh.session, quoted: true, ignore_ops: true})).join(", ") + ".";
+				const txQuery = tx.map(t => t.toString({session: this.pl.session, quoted: true, ignore_ops: true})).join(", ") + ".";
 				console.log("TX query:", txQuery);
 				const app = this.env.PENGINES_APP_DO.get(
 					this.env.PENGINES_APP_DO.idFromName(req.application));
 				const update = new Request(`http://${req.application}/exec`, {
 					method: "POST",
 					body: txQuery,
+					headers: {
+						"Pengine": id,
+					},
 				});
 				const result = await app.fetch(update);
 				if (!result.ok) {
@@ -362,9 +301,13 @@ export class PrologDO {
 				meta.app_src = await result.text();	
 			}
 		}
+		if (req.application && !tx) {
+			meta.app_src = dumpModule(this.pl.session.modules.app);
+		}
 
 		if (persist) {
-			this.saveRules(meta);
+			this.meta.put(meta);
+			this.save();
 		}
 		const more = await this.saveState(parentReq ?? req, rest);
 
@@ -445,9 +388,9 @@ export class PrologDO {
 
 		const contentType = request.headers.get("Content-Type")?.toLowerCase() || "";
 		if (contentType.includes("application/json")) {
-			msg = await parseAskJSON(this.sesh, await request.json());
+			msg = await parseAskJSON(this.pl, await request.json());
 		} else if (contentType.includes("prolog")) {
-			msg = await parseAsk(this.sesh, await request.text());
+			msg = await parseAsk(this.pl, await request.text());
 		} else {
 			return new Response("Unsupported Media Type", { status: 415 });
 		}
@@ -469,7 +412,7 @@ export class PrologDO {
 
 		try {
 			const resp = await this.exec(id, msg, start, persist);
-			return formatResponse(format, resp, this.sesh);
+			return formatResponse(format, resp, this.pl);
 		} catch(err) {
 			if (err instanceof Error) {
 				throw(err);
@@ -478,7 +421,7 @@ export class PrologDO {
 			const ball = toProlog(err);
 			if (format == "json") {
 				const resp = {
-					"data": serializeTerm(ball, this.sesh),
+					"data": serializeTerm(ball, this.pl),
 					"event": "error",
 					"id": id,
 				};
@@ -486,9 +429,37 @@ export class PrologDO {
 			}
 			const idTerm = new pl.type.Term(id, []);
 			const msg = new pl.type.Term("error", [idTerm, ball]);
-			const text = msg.toString({session: this.sesh.session, quoted: true, ignore_ops: false }) + ".\n";
+			const text = msg.toString({session: this.pl.session, quoted: true, ignore_ops: false }) + ".\n";
 			return prologResponse(text);
 		}
+	}
+
+	async syncApp(app: DurableObjectStub, req: Partial<PengineRequest>, meta: PengineMetadata) {
+		const update = new Request(`http://${req.application}/dump.pl`);
+		const result = await app.fetch(update);
+		const prog = await result.text();
+		if (!result.ok) {
+			throw makeError("consult_app_error", result.status);
+		}
+		meta.app_src = prog;
+		this.pl.session.modules.app = new pl.type.Module("app", {}, "all", {
+			session: this.pl.session,
+			dependencies: ["system"]
+		});
+		this.pl.session.consult(prog, {
+			from: "$pengines-app",
+			context_module: "app",
+			reconsult: true,
+			url: false,
+			html: false,
+			success: function() {
+				console.log("synced w/ app");
+			}.bind(this),
+			error: function(err: unknown) {
+				console.error("invalid app text:", prog);
+				throw makeError("consult_error", err, functor("application", req.application));
+			}
+		});
 	}
 }
 
@@ -596,25 +567,4 @@ async function parseAsk(sesh: Prolog, ask: string): Promise<Partial<PengineReque
 	}
 
 	return result;
-}
-
-function loadModule(mod: any, data: any) {
-	console.log("LOADIN!", data);
-	// TODO Use session.add_rule instead
-
-	for (const id of Object.keys(data)) {
-		mod.rules[id] = [];
-	}
-	
-	for (const id of Object.keys(data)) {
-		const rules = data[id];
-		for (const rule of rules) {
-			if (mod.rules[id] === undefined) {
-				mod.rules[id] = [];
-			}
-			mod.public_predicates[id] = true;
-			mod.rules[id].push(rule);
-			mod.update_indices_predicate(id);
-		}
-	}
 }

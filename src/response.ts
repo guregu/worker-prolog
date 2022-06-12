@@ -159,7 +159,7 @@ function makeJSONAnswer(answer: PengineResponse | SuccessEvent, sesh?: Prolog): 
 		data: data,
 		id: answer.id,
 		more: answer.more,
-		projection: answer.projection.map(x => x.toJavaScript()),
+		projection: answer.projection.map(x => x.toJavaScript()), // FIXME: hack :-)
 		time: answer.time,
 		slave_limit: ARBITRARY_HIGH_NUMBER,
 		output: answer.output,

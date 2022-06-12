@@ -17,7 +17,7 @@
   "dependencies": {
     "@worker-tools/html": "^2.0.0-pre.12",
     "@worker-tools/json-fetch": "^2.0.0-pre.12",
-    "tau-prolog": "guregu/tau-prolog"
+    "tau-prolog": "github:guregu/tau-prolog#master"
   },
   "platform": "node"
 }

@@ -36,7 +36,6 @@ export class Store<T> {
 			}
 			const v = JSON.parse(raw, this.reviver);
 			record[k.slice(path.length)] = v;
-			console.log("@@ getRecord:", path, k.slice(path.length), raw.slice(0, 10));
 		}
 		return record;
 	}
@@ -53,7 +52,6 @@ export class Store<T> {
 			const path = this.recordPath(prefix, key);
 			const enc = this.encode(value);
 			put[path] = enc;
-			console.log("@@ putRecord:", path, enc.slice(0, 10));
 		}
 		
 		return this.storage.put(put);

@@ -1,7 +1,8 @@
 import pl from "tau-prolog";
 import { JSONResponse } from "@worker-tools/json-fetch";
+import { functor, makeError, Query } from "./prolog";
+import { PrologDO } from "./prolog-do";
 import { PengineMetadata } from "./pengines";
-import { functor, makeError, Prolog, Query } from "./prolog";
 import { makeResponse, Store } from "./unholy";
 import { prologResponse } from "./response";
 
@@ -11,128 +12,34 @@ export interface Application {
 	modules: Record<string, Record<string, pl.type.Rule[]>>;
 }
 
-export class PLDO {
-	state: DurableObjectState;
-	pl: Prolog;
-	rules: Store<pl.type.Rule[]>;
-
-	constructor(state: DurableObjectState, env: any) {
-		this.state = state;
-		this.rules = new Store(this.state.storage, "rules", pl.type);
-		this.state.blockConcurrencyWhile(async () => {
-			this.pl = await this.load();
-		});	  
-	}
-
-	async load(): Promise<Prolog> {
-		const prolog = new Prolog();
-		const rules = await this.rules.record();
-
-		for (const [k, rs] of Object.entries(rules)) {
-			let moduleTerm;
-			const colon = k.indexOf(":");
-			if (colon != -1) {
-				moduleTerm = new pl.type.Term(k.slice(0, colon), []);
-				let mod = prolog.session.modules[moduleTerm.id];
-				if (!mod) {
-					mod = new pl.type.Module(moduleTerm.id, {}, "all", {
-						session: prolog.session,
-						dependencies: ["system"]
-					});
-				}
-				mod.public_predicates[k.slice(colon+1)] = true;
-			}
-			
-			
-			for (const rule of rs) {
-				if (rule.head.indicator !== ":/2") {
-					const old = rule.head.clone();
-					rule.head = new pl.type.Term(":", [
-						moduleTerm,
-						old,
-					]);
-				}
-				prolog.session.add_rule(rule);
-				console.log("ADD RULE", k, rule.toString());
-			}
-		}
-
-		return prolog;
-	}
-
-	async debugdump() {
-		const all = await this.rules.record();
-		console.log("____DEBUG DUMP___", all);
-	}
-
-	async save() {
-		for (const [name, mod] of Object.entries(this.pl.session.modules)) {
-			if (mod.is_library) {
-				continue;
-			}
-			console.log("savemod?", name, mod.rules);
-			await this.rules.putRecord(name, mod.rules);
-		}
-	}
-
-	dump(): string {
-		let prog = "";
-		for (const [name, mod] of Object.entries(this.pl.session.modules)) {
-			if (mod.is_library) {
-				continue;
-			}
-			prog += this.dumpModule(mod);
-		}
-		return prog;
-	}
-
-	dumpModule(mod: pl.type.Module, name?: string) {
-		if (!mod || !mod.rules) {
-			return "";
-		}
-		if (!name) {
-			name = mod.id;
-		}
-
-		let prog = "";
-		// const moduleTerm = new pl.type.Term(name, []);
-		for (const [pi, rs] of Object.entries(mod.rules)) {
-			// prog += `:- dynamic(${name}:${pi}).\n`;
-			prog += `:- dynamic(${pi}).\n`;
-			for (const r of rs) {
-				const rule = r;
-				// const rule = r.clone();
-				// if (rule.head.indicator !== ":/2") {
-				// 	rule.head = new pl.type.Term(":", [
-				// 		moduleTerm,
-				// 		rule.head
-				// 	]);
-				// }
-				prog += rule.toString({session: this.pl.session, quoted: true}) + "\n";
-			}
-		}
-		return prog;
-	}
+interface WebSocket {
+	send(msg: string): void;
+	accept(): void;
+	addEventListener(a: string, f: (msg: MessageEvent) => void): void;
 }
 
-export class ApplicationDO extends PLDO {
+export class ApplicationDO extends PrologDO {
 	env: any;
-	id: string;
+	id: string | undefined;
 	meta: Store<PengineMetadata>;
+	sockets: Map<string, WebSocket> = new Map();
 
-	constructor(state: DurableObjectState, env: any) {
+	constructor(state: DurableObjectState, env: never) {
 		super(state, env);
 		this.env = env;
 		this.meta = new Store(this.state.storage, "meta", pl.type);
+		this.meta.get().then((meta?: PengineMetadata) => {
+			this.id = meta?.application;
+		});
 	}
 
 	async fetch(request: Request) {
 		const url = new URL(request.url);
-		console.log("request:", url.pathname);
 
-		this.id = url.searchParams.get("application") ?? url.hostname;
-		console.log("DOID", this.id);
-		await this.debugdump();
+		if (!this.id) {
+			this.id = url.searchParams.get("application") ?? url.hostname;
+		}
+		this.debugdump();
 
 		if (request.headers.get("Upgrade") == "websocket") {
 			return this.handleWebsocket(request);
@@ -177,7 +84,7 @@ export class ApplicationDO extends PLDO {
 				success: function() {
 					console.log("consulted url:", url, prog.length);
 				}.bind(this),
-				error: function(err: any) {
+				error: function(err: unknown) {
 					console.error("invalid src_url text:", prog);
 					throw makeError("consult_error", err, functor("src_url", url));
 				}
@@ -192,7 +99,7 @@ export class ApplicationDO extends PLDO {
 				success: function() {
 					console.log("consulted text:", req.src_text);
 				},
-				error: function(err: any) {
+				error: function(err: unknown) {
 					console.error("invalid src_text:", req.src_text);
 					throw makeError("consult_error", err, "src_text");
 				}
@@ -202,12 +109,16 @@ export class ApplicationDO extends PLDO {
 		return makeResponse(await this.info());
 	}
 
-	async info() {
-		const meta = await this.meta.get(this.state.id.toString()) ?? {
+	async getMeta(): Promise<PengineMetadata> {
+		return await this.meta.get() ?? {
 			application: this.id,
 			title: "untitled",
 			src_urls: [],
 		};
+	}
+
+	async info() {
+		const meta = await this.getMeta();
 		return {
 			id: this.id,
 			meta: meta,
@@ -224,8 +135,8 @@ export class ApplicationDO extends PLDO {
 	}
 
 	modules() {
-		const mods: Record<string, any> = {};
-		for (const [name, mod] of Object.entries(this.pl.session.modules)) {
+		const mods: Record<string, Partial<pl.type.Module>> = {};
+		for (const [name, mod] of Object.entries<pl.type.Module>(this.pl.session.modules)) {
 			if (mod.is_library) {
 				continue;
 			}
@@ -236,56 +147,62 @@ export class ApplicationDO extends PLDO {
 		return mods;
 	}
 
-	async handleIndex(request: Request): Promise<Response> {
+	async handleIndex(_request: Request): Promise<Response> {
 		return makeResponse(await this.info());
 	}
 
-	async handleMeta(request: Request): Promise<Response> {
+	async handleMeta(_request: Request): Promise<Response> {
 		const resp = await this.meta.get() ?? {};
 		return new JSONResponse(resp);
 	}
 
-	async handleRules(request: Request): Promise<Response> {
+	async handleRules(_request: Request): Promise<Response> {
 		const mods = this.pl.session.modules;
 		return makeResponse(mods);
 	}
 
 	async handleExec(request: Request): Promise<Response> {
 		const prog = await request.text();
+		const pengine = request.headers.get("Pengine") ?? undefined;
 		const query = new Query(this.pl.session, prog);
 		const answers = query.answer();
-		console.log("EXEC~~", query);
+		const changes = [];
 		for await (const [goal, answer] of answers) {
-			console.log("EXEC", goal, answer, request);
 			if (answer.indicator == "throw/1") {
 				console.error(this.pl.session.format_answer(answer));
+				continue;
 			}
+			changes.push(goal);
 		}
 		await this.save();
+
+		if (changes.length > 0) {
+			const update = changes
+				.map(x => x.toString({session: this.pl.session, quoted: true, ignore_ops: false}))
+				.join(", ") + ".";
+			this.broadcast(update, pengine);
+		}
+
 		// return new Response("true.\n");
-		const meta = await this.meta.get() ?? {src_urls: [], title: "untitled"};
+		const meta = await this.getMeta();
 		return prologResponse(this.dumpApp(meta));
 	}
 
-	async handleDump(request: Request): Promise<Response> {
-		const meta = await this.meta.get() ?? {src_urls: [], title: "untitled"};
+	async handleDump(_request: Request): Promise<Response> {
+		const meta = await this.getMeta();
 		return prologResponse(this.dumpApp(meta));
 	}
 
-	async handleSession(websocket) {
+	async handleSession(websocket: WebSocket, from: string) {
+		console.log("NEW WS", from);
 		websocket.accept();
+		this.sockets.set(from, websocket);
 		websocket.addEventListener("message", async (msg) => {
-			console.log("websocket msg", msg);
-			// if (data === "CLICK") {
-			// 	count += 1;
-			// 	websocket.send(JSON.stringify({ count, tz: new Date() }));
-			// } else {
-			// 	// An unknown message came into the server. Send back an error message
-			// 	websocket.send(JSON.stringify({ error: "Unknown message received", tz: new Date() }));
-			// }
+			console.log("websocket msg", msg.data, "from", from);
 		});
 
-		websocket.addEventListener("close", async evt => {
+		websocket.addEventListener("close", async (evt) => {
+			this.sockets.delete(from);
 			// Handle when a client closes the WebSocket connection
 			console.log("wsclose", evt);
 		});
@@ -297,12 +214,23 @@ export class ApplicationDO extends PLDO {
 			return new Response("Expected websocket", { status: 400 });
 		}
 
+		const url = new URL(request.url);
+		const from = url.pathname.slice(1);
 		const [client, server] = Object.values(new WebSocketPair());
-		await this.handleSession(server);
+		await this.handleSession(server as unknown as WebSocket, from);
 
 		return new Response(null, {
 			status: 101,
 			webSocket: client
 		});
+	}
+
+	broadcast(msg: string, exclude?: string) {
+		for (const [id, socket] of this.sockets) {
+			if (exclude && id == exclude) {
+				continue;
+			}
+			socket.send(msg);
+		}
 	}
 }

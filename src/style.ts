@@ -113,12 +113,6 @@ export const indexStyle = html`
 			outline: 0;
 		}
 
-		#src_text {
-				/* width: 80ch;
-				height: 24ch;
-				width: calc(100% - 8px); */
-		}
-
 		section {
 				margin: 0.3em;
 		}

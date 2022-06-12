@@ -11,7 +11,7 @@ const EXAMPLE_QUERIES: [string, string][] = [
 	["% https://www.j-paine.org/dobbs/prolog_lightbulb.html\n\nchange_lightbulb(1, porlog_programmer).", "change_lightbulb(HowMany, prolog_programmer)."],
 ];
 
-export function renderIndex(query: string | null, params: URLSearchParams, result?: PengineResponse) {
+export function renderIndex(query: string | undefined, params: URLSearchParams, result?: PengineResponse) {
 	const meta = result?.meta ?? result?.answer?.meta ?? result?.data?.meta;
 	if (result?.event == "create" && result?.answer) {
 		result = result.answer;
@@ -71,6 +71,7 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 
 				<section id="query">
 					<form method="GET" id="query-form">
+						<input type="hidden" name="id" value="${result?.id}">
 						<label for="ask">?- </label>
 						<input type="text" name="ask" id="ask"
 							value="${ask}"
