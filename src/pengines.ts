@@ -86,9 +86,8 @@ export class PrologDO {
 	}
 
 	async handleMeta(request): Promise<Response> {
-		const id = this.state.id.toString();
 		await this.loadRules();
-		const resp = await this.meta.get(id) ?? {};
+		const resp = await this.meta.get() ?? {};
 		return new JSONResponse(resp);
 	}
 
@@ -98,8 +97,7 @@ export class PrologDO {
 	}
 
 	async loadRules(module = "user"): Promise<PengineMetadata | undefined> {
-		const app = this.state.id.toString();
-		const mod = await this.rules.record(app, module);
+		const mod = await this.rules.record(module);
 		for (const [pi, rs] of Object.entries(mod)) {
 			for (const r of rs) {
 				this.sesh.session.add_rule(r, {from: "$storage", context_module: module});
@@ -107,45 +105,44 @@ export class PrologDO {
 		}
 		// loadModule(this.sesh.session.modules[module], mod);
 
-		return this.meta.get(app);
+		return this.meta.get();
 	}
 
 	async saveRules(meta?: PengineMetadata, module = "user") {
-		const app = this.state.id.toString();
 		if (meta) {
-			this.meta.put(app, meta);
+			this.meta.put(meta);
 		}
 		const rules: Record<string, pl.type.Rule[]> = this.sesh.session.modules[module]?.rules;
 		if (rules) {
 			for (const [pi, rule] of Object.entries(rules)) {
 				console.log("SRC_PRED", pi, rule, this.sesh.session.modules[module].src_predicates[pi]);
-				this.rules.putRecordItem(app, module, pi, rule);
+				this.rules.putRecordItem(module, pi, rule);
 				// this.rules.putRecord(app, module, rules);
 			}
 		}
 
-		console.log("saved", app, module);
+		console.log("saved", module);
 	}
 
-	async loadState(id: string): Promise<[Partial<PengineRequest> | undefined, pl.type.State[]]> {
-		const req = await this.query.get(id);
-		const next = await this.points.get(id) ?? [];
+	async loadState(): Promise<[Partial<PengineRequest> | undefined, pl.type.State[]]> {
+		const req = await this.query.get();
+		const next = await this.points.get() ?? [];
 		return [req, next];
 	}
 
-	async saveState(id: string, req: Partial<PengineRequest>, pts: pl.type.State[]) {
+	async saveState(req: Partial<PengineRequest>, pts: pl.type.State[]) {
 		if (pts.length > 0) {
-			this.query.put(id, req);
-			this.points.put(id, pts);
+			this.query.put(req);
+			this.points.put(pts);
 			return true; // more
 		}
-		this.points.delete(id);
+		this.points.delete();
 		return false; // no more
 	}
 
 	async exec(id: string, req: Partial<PengineRequest>, start: number, persist: boolean): Promise<PengineResponse> {
 		const meta: PengineMetadata = (await this.loadRules()) ?? {src_urls: [], title: "prolog~"};
-		const [parentReq, next] = await this.loadState(id);
+		const [parentReq, next] = await this.loadState();
 
 		console.log("##############", meta, parentReq, next);
 
@@ -173,34 +170,36 @@ export class PrologDO {
 			};
 		}
 
-		if (req.application) {
+		if (req.application && req.application != DEFAULT_APPLICATION) {
 			meta.application = req.application;
 			const app = this.env.PENGINES_APP_DO.get(
 				this.env.PENGINES_APP_DO.idFromName(req.application));
+			
+			// TODO: websocket stuff
+			{
+				// console.log("RDY?", this.appSocket, this.appSocket?.readyState);
+				// if (!this.appSocket || this.appSocket.readyState !== this.appSocket.OPEN) {
+				// 	const resp = await app.fetch(`http://${req.application}`, {
+				// 		headers: {
+				// 			Upgrade: "websocket",
+				// 		},
+				// 	});
 
-			console.log("RDY?", this.appSocket, this.appSocket?.readyState);
+				// 	const ws = resp.webSocket;
+				// 	if (!ws) {
+				// 		throw new Error("server didn't accept WebSocket");
+				// 	}
 
-			if (!this.appSocket || this.appSocket.readyState !== this.appSocket.OPEN) {
-				const resp = await app.fetch(`http://${req.application}`, {
-					headers: {
-						Upgrade: "websocket",
-					},
-				});
+				// 	ws.accept();
+				// 	this.appSocket = ws;
+				// 	console.log("contexted", ws);
 
-				const ws = resp.webSocket;
-				if (!ws) {
-					throw new Error("server didn't accept WebSocket");
-				}
-
-				ws.accept();
-				this.appSocket = ws;
-				console.log("contexted", ws);
-
-				// Now you can send and receive messages like before.
-				ws.send("hello");
-				ws.addEventListener("message", msg => {
-					console.log("GOTMSG", msg);
-				});
+				// 	// Now you can send and receive messages like before.
+				// 	ws.send("hello");
+				// 	ws.addEventListener("message", msg => {
+				// 		console.log("GOTMSG", msg);
+				// 	});
+				// }
 			}	
 
 			const update = new Request(`http://${req.application}/dump.pl`);
@@ -347,7 +346,7 @@ export class PrologDO {
 					appTx.push(op);
 				}
 			}
-			if (req.application && appTx.length > 0) {
+			if (req.application && req.application != DEFAULT_APPLICATION && appTx.length > 0) {
 				const txQuery = tx.map(t => t.toString({session: this.sesh.session, quoted: true, ignore_ops: true})).join(", ") + ".";
 				console.log("TX query:", txQuery);
 				const app = this.env.PENGINES_APP_DO.get(
@@ -367,7 +366,7 @@ export class PrologDO {
 		if (persist) {
 			this.saveRules(meta);
 		}
-		const more = await this.saveState(id, parentReq ?? req, rest);
+		const more = await this.saveState(parentReq ?? req, rest);
 
 		const end = Date.now();
 		const time = (end - start) / 1000;

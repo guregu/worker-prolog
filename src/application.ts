@@ -26,8 +26,7 @@ export class PLDO {
 
 	async load(): Promise<Prolog> {
 		const prolog = new Prolog();
-		const app = this.state.id.toString();
-		const rules = await this.rules.record(app);
+		const rules = await this.rules.record();
 
 		for (const [k, rs] of Object.entries(rules)) {
 			let moduleTerm;
@@ -54,7 +53,7 @@ export class PLDO {
 					]);
 				}
 				prolog.session.add_rule(rule);
-				console.log("ADD RULE", k, app, rule.toString());
+				console.log("ADD RULE", k, rule.toString());
 			}
 		}
 
@@ -62,18 +61,17 @@ export class PLDO {
 	}
 
 	async debugdump() {
-		const all = await this.rules.record(null);
+		const all = await this.rules.record();
 		console.log("____DEBUG DUMP___", all);
 	}
 
 	async save() {
-		const app = this.state.id.toString();
 		for (const [name, mod] of Object.entries(this.pl.session.modules)) {
 			if (mod.is_library) {
 				continue;
 			}
-			console.log("savemod?", app, name, mod.rules);
-			await this.rules.putRecord(app, name, mod.rules);
+			console.log("savemod?", name, mod.rules);
+			await this.rules.putRecord(name, mod.rules);
 		}
 	}
 
@@ -160,10 +158,9 @@ export class ApplicationDO extends PLDO {
 	}
 
 	async handleSet(request: Request): Promise<Response> {
-		const id = this.state.id.toString();
 		const req = await request.json() as PengineMetadata;
 		req.application = this.id;
-		await this.meta.put(id, req);
+		await this.meta.put(req);
 
 		for (const url of req.src_urls) {
 			const resp = await fetch(new Request(url));
@@ -220,7 +217,8 @@ export class ApplicationDO extends PLDO {
 	}
 
 	dumpApp(meta: PengineMetadata) {
-		let out = meta.src_text ? meta.src_text + "\n" : "";
+		let out = `% app = ${this.id}, id = ${this.state.id.toString()}\n`;
+		out += meta.src_text ? meta.src_text + "\n" : "";
 		out += this.dumpModule(this.pl.session.modules.app);
 		return out;
 	}
@@ -243,8 +241,7 @@ export class ApplicationDO extends PLDO {
 	}
 
 	async handleMeta(request: Request): Promise<Response> {
-		const id = this.state.id.toString();
-		const resp = await this.meta.get(id) ?? {};
+		const resp = await this.meta.get() ?? {};
 		return new JSONResponse(resp);
 	}
 
@@ -266,14 +263,12 @@ export class ApplicationDO extends PLDO {
 		}
 		await this.save();
 		// return new Response("true.\n");
-		const id = this.state.id.toString();
-		const meta = await this.meta.get(id) ?? {src_urls: [], title: "untitled"};
+		const meta = await this.meta.get() ?? {src_urls: [], title: "untitled"};
 		return prologResponse(this.dumpApp(meta));
 	}
 
 	async handleDump(request: Request): Promise<Response> {
-		const id = this.state.id.toString();
-		const meta = await this.meta.get(id) ?? {src_urls: [], title: "untitled"};
+		const meta = await this.meta.get() ?? {src_urls: [], title: "untitled"};
 		return prologResponse(this.dumpApp(meta));
 	}
 

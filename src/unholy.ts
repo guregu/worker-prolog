@@ -12,8 +12,8 @@ export class Store<T> {
 		this.reviver = makeReviver(types);
 	}
 
-	public async get(id: string): Promise<T | undefined> {
-		const raw = await this.storage.get(this.path(id));
+	public async get(): Promise<T | undefined> {
+		const raw = await this.storage.get(this.path());
 		if (raw === undefined) {
 			return undefined;
 		}
@@ -23,9 +23,9 @@ export class Store<T> {
 		return JSON.parse(raw, this.reviver);
 	}
 
-	public async record(id: string, prefix?: string): Promise<Record<string, T>> {
+	public async record(prefix?: string): Promise<Record<string, T>> {
 		const suffix = prefix ? prefix+":" : "";
-		const path = `${this.path(id)}::${suffix}`;
+		const path = `${this.path()}::${suffix}`;
 		const items = await this.storage.list({
 			prefix: path,
 		});
@@ -41,16 +41,16 @@ export class Store<T> {
 		return record;
 	}
 
-	public async put(id: string, v: T): Promise<void> {
-		const path = this.path(id);
+	public async put(v: T): Promise<void> {
+		const path = this.path();
 		const enc = this.encode(v);
 		return this.storage.put(path, enc);
 	}
 
-	public async putRecord(id: string, prefix: string, record: Record<string, T>) {
+	public async putRecord(prefix: string, record: Record<string, T>) {
 		const put: Record<string, string> = {};
 		for (const [key, value] of Object.entries(record)) {
-			const path = this.recordPath(id, prefix, key);
+			const path = this.recordPath(prefix, key);
 			const enc = this.encode(value);
 			put[path] = enc;
 			console.log("@@ putRecord:", path, enc.slice(0, 10));
@@ -59,26 +59,26 @@ export class Store<T> {
 		return this.storage.put(put);
 	}
 
-	public async putRecordItem(id: string, prefix: string, key: string, value: T) {
-		const path = this.recordPath(id, prefix, key);
+	public async putRecordItem(prefix: string, key: string, value: T) {
+		const path = this.recordPath(prefix, key);
 		const enc = this.encode(value);
 		return this.storage.put(path, enc);
 	}
 
-	public async delete(id: string): Promise<boolean> {
-		return this.storage.delete(this.path(id));
+	public async delete(): Promise<boolean> {
+		return this.storage.delete(this.path());
 	}
 
 	private encode(value: T): string {
 		return JSON.stringify(value, replacer);
 	}
 
-	private path(id: string): string {
+	private path(): string {
 		return `${this.key}:v${CURRENT_VERSION}`;
 	}
 
-	private recordPath(id: string, prefix = "", key = ""): string {
-		return `${this.path(id)}::${prefix}:${key}`;
+	private recordPath(prefix = "", key = ""): string {
+		return `${this.path()}::${prefix}:${key}`;
 	}
 }
 

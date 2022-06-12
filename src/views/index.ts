@@ -25,7 +25,7 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 		desc = renderDescription(result);
 	}
 	let subtitle;
-	if (result?.meta?.application) {
+	if (result?.meta?.application && result.meta.application != "pengine_sandbox") {
 		subtitle = result.meta.application;
 	}
 	return html`
