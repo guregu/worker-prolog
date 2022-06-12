@@ -24,6 +24,10 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 	} else if (result) {
 		desc = renderDescription(result);
 	}
+	let subtitle;
+	if (result?.meta?.application) {
+		subtitle = result.meta.application;
+	}
 	return html`
 		<!doctype html>
 		<meta name="viewport" content="width=device-width, initial-scale=1">
@@ -39,16 +43,13 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 			<body>
 				<header>
 					<h1><a href="/">𝖕𝖗𝖔𝖑𝖔𝖌.𝖗𝖚𝖓</a></h1>
+					${subtitle && html`<h2>${subtitle}</h2>`}
 				</header>
 
 				<section id="settings">
 					<details>
 						<summary>Advanced</summary>
 						<table class="form">
-							<tr>
-								<td><label for="id">ID:</label></td>
-								<td><input type="text" placeholder="(blank to randomly generate)" id="id" name="id" form="query-form" value="${result?.id ?? params.get("id")}"></td>
-							</tr>
 							<tr>
 								<td><label for="application">Application:</label></td>
 								<td><input type="text" placeholder="pengine_sandbox" id="application" name="application" form="query-form" value="${params.get("application")}"></td>
@@ -110,11 +111,17 @@ export function renderIndex(query: string | null, params: URLSearchParams, resul
 				</section>
 
 				<br>
+
+				${result?.meta?.app_src && html`
+					<details id="raw" class="dump">
+						<summary>Application State</summary>
+						<pre>${result?.meta?.app_src}</pre>
+					</details>`}
 				
 				${result && html`
 					<details id="raw" class="dump">
 						<summary>Raw result</summary>
-						<code>${JSON.stringify(result)}</code>
+						<pre>${JSON.stringify(result, null, "  ")}</pre>
 					</details>`}
 				
 				<br>

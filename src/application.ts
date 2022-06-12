@@ -20,8 +20,7 @@ export class PLDO {
 		this.state = state;
 		this.rules = new Store(this.state.storage, "rules", pl.type);
 		this.state.blockConcurrencyWhile(async () => {
-			this.pl = new Prolog();
-			await this.load();
+			this.pl = await this.load();
 		});	  
 	}
 
@@ -29,8 +28,6 @@ export class PLDO {
 		const prolog = new Prolog();
 		const app = this.state.id.toString();
 		const rules = await this.rules.record(app);
-
-		console.log("DA RULEZ", rules, "4APP", app);
 
 		for (const [k, rs] of Object.entries(rules)) {
 			let moduleTerm;
@@ -43,7 +40,6 @@ export class PLDO {
 						session: prolog.session,
 						dependencies: ["system"]
 					});
-					// prolog.session.modules[moduleTerm.id] = mod;
 				}
 				mod.public_predicates[k.slice(colon+1)] = true;
 			}
@@ -57,12 +53,17 @@ export class PLDO {
 						old,
 					]);
 				}
-				console.log("added rule", app, rule, moduleTerm);
 				prolog.session.add_rule(rule);
+				console.log("ADD RULE", k, app, rule.toString());
 			}
 		}
 
 		return prolog;
+	}
+
+	async debugdump() {
+		const all = await this.rules.record(null);
+		console.log("____DEBUG DUMP___", all);
 	}
 
 	async save() {
@@ -71,8 +72,8 @@ export class PLDO {
 			if (mod.is_library) {
 				continue;
 			}
-			console.log("savemod", app, name, mod.rules);
-			this.rules.putRecord(app, name, mod.rules);
+			console.log("savemod?", app, name, mod.rules);
+			await this.rules.putRecord(app, name, mod.rules);
 		}
 	}
 
@@ -130,10 +131,14 @@ export class ApplicationDO extends PLDO {
 	async fetch(request: Request) {
 		const url = new URL(request.url);
 		console.log("request:", url.pathname);
-		this.pl = await this.load();
 
 		this.id = url.searchParams.get("application") ?? url.hostname;
 		console.log("DOID", this.id);
+		await this.debugdump();
+
+		if (request.headers.get("Upgrade") == "websocket") {
+			return this.handleWebsocket(request);
+		}
 		
 		switch (url.pathname) {
 		case "/":
@@ -158,8 +163,6 @@ export class ApplicationDO extends PLDO {
 		const id = this.state.id.toString();
 		const req = await request.json() as PengineMetadata;
 		req.application = this.id;
-		console.log("REQUE", req);
-		// this.state.blockConcurrencyWhile
 		await this.meta.put(id, req);
 
 		for (const url of req.src_urls) {
@@ -216,6 +219,12 @@ export class ApplicationDO extends PLDO {
 		};
 	}
 
+	dumpApp(meta: PengineMetadata) {
+		let out = meta.src_text ? meta.src_text + "\n" : "";
+		out += this.dumpModule(this.pl.session.modules.app);
+		return out;
+	}
+
 	modules() {
 		const mods: Record<string, any> = {};
 		for (const [name, mod] of Object.entries(this.pl.session.modules)) {
@@ -248,16 +257,57 @@ export class ApplicationDO extends PLDO {
 		const prog = await request.text();
 		const query = new Query(this.pl.session, prog);
 		const answers = query.answer();
+		console.log("EXEC~~", query);
 		for await (const [goal, answer] of answers) {
+			console.log("EXEC", goal, answer, request);
 			if (answer.indicator == "throw/1") {
 				console.error(this.pl.session.format_answer(answer));
 			}
 		}
 		await this.save();
-		return new Response("true.\n");
+		// return new Response("true.\n");
+		const id = this.state.id.toString();
+		const meta = await this.meta.get(id) ?? {src_urls: [], title: "untitled"};
+		return prologResponse(this.dumpApp(meta));
 	}
 
 	async handleDump(request: Request): Promise<Response> {
-		return prologResponse(this.dumpModule(this.pl.session.modules.app));
+		const id = this.state.id.toString();
+		const meta = await this.meta.get(id) ?? {src_urls: [], title: "untitled"};
+		return prologResponse(this.dumpApp(meta));
+	}
+
+	async handleSession(websocket) {
+		websocket.accept();
+		websocket.addEventListener("message", async (msg) => {
+			console.log("websocket msg", msg);
+			// if (data === "CLICK") {
+			// 	count += 1;
+			// 	websocket.send(JSON.stringify({ count, tz: new Date() }));
+			// } else {
+			// 	// An unknown message came into the server. Send back an error message
+			// 	websocket.send(JSON.stringify({ error: "Unknown message received", tz: new Date() }));
+			// }
+		});
+
+		websocket.addEventListener("close", async evt => {
+			// Handle when a client closes the WebSocket connection
+			console.log("wsclose", evt);
+		});
+	}
+
+	async handleWebsocket(request: Request) {
+		const upgradeHeader = request.headers.get("Upgrade");
+		if (upgradeHeader !== "websocket") {
+			return new Response("Expected websocket", { status: 400 });
+		}
+
+		const [client, server] = Object.values(new WebSocketPair());
+		await this.handleSession(server);
+
+		return new Response(null, {
+			status: 101,
+			webSocket: client
+		});
 	}
 }

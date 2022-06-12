@@ -24,7 +24,8 @@ export class Store<T> {
 	}
 
 	public async record(id: string, prefix?: string): Promise<Record<string, T>> {
-		const path = `${this.path(id)}::${prefix ?? ""}:`;
+		const suffix = prefix ? prefix+":" : "";
+		const path = `${this.path(id)}::${suffix}`;
 		const items = await this.storage.list({
 			prefix: path,
 		});
@@ -35,6 +36,7 @@ export class Store<T> {
 			}
 			const v = JSON.parse(raw, this.reviver);
 			record[k.slice(path.length)] = v;
+			console.log("@@ getRecord:", path, k.slice(path.length), raw.slice(0, 10));
 		}
 		return record;
 	}
@@ -51,7 +53,9 @@ export class Store<T> {
 			const path = this.recordPath(id, prefix, key);
 			const enc = this.encode(value);
 			put[path] = enc;
+			console.log("@@ putRecord:", path, enc.slice(0, 10));
 		}
+		
 		return this.storage.put(put);
 	}
 
@@ -70,7 +74,7 @@ export class Store<T> {
 	}
 
 	private path(id: string): string {
-		return `id:${id}:v${CURRENT_VERSION}:${this.key}`;
+		return `${this.key}:v${CURRENT_VERSION}`;
 	}
 
 	private recordPath(id: string, prefix = "", key = ""): string {
@@ -111,4 +115,19 @@ export function makeReviver(types: Record<string, any> = globalThis) {
 		Object.setPrototypeOf(v, proto.prototype);
 		return v;
 	};
+}
+
+export async function parseResponse(resp: Response, types: Record<string, any> = globalThis): Promise<any> {
+	const reviver = makeReviver(types);
+	const text = await resp.text();
+	return JSON.parse(text, reviver);
+}
+
+export function makeResponse(obj: any): Response {
+	const text = JSON.stringify(obj, replacer);
+	return new Response(text, {
+		headers: {
+			"Content-Type": "application/json; charset=UTF-8"
+		}
+	});
 }

@@ -4,6 +4,7 @@ import { JSONResponse } from "@worker-tools/json-fetch";
 import { Prolog, makeList, makeError, functor, toProlog, Query } from "./prolog";
 import { replacer, makeReviver, Store } from "./unholy";
 import { ErrorEvent, formatResponse, PengineResponse, prologResponse, serializeTerm } from "./response";
+import { Env } from ".";
 
 export const DEFAULT_APPLICATION = "pengine_sandbox";
 
@@ -30,10 +31,14 @@ export interface PengineMetadata {
 	src_text?: string,
 	src_urls: string[],
 	title: string,
+
+	application?: string,
+	app_src?: string
 }
 
 export class PrologDO {
 	state: DurableObjectState;
+	env: Env;
 	sesh: Prolog;
 	consulted_urls: string[] = [];
 	req?: Partial<PengineRequest>;
@@ -42,11 +47,12 @@ export class PrologDO {
 	query: Store<Partial<PengineRequest>>;
 	rules: Store<pl.type.Rule[]>;
 	meta: Store<PengineMetadata>;
-	// src_urls: Store<string[]>;
-	// src_text: Store<string>;
 
-	constructor(state: DurableObjectState, env: any) {
+	appSocket?: WebSocket;
+
+	constructor(state: DurableObjectState, env: Env) {
 		this.state = state;
+		this.env = env;
 		this.points = new Store(this.state.storage, "points", pl.type);
 		this.query = new Store(this.state.storage, "query", pl.type);
 		this.rules = new Store(this.state.storage, "rules", pl.type);
@@ -94,7 +100,12 @@ export class PrologDO {
 	async loadRules(module = "user"): Promise<PengineMetadata | undefined> {
 		const app = this.state.id.toString();
 		const mod = await this.rules.record(app, module);
-		loadModule(this.sesh.session.modules[module], mod);
+		for (const [pi, rs] of Object.entries(mod)) {
+			for (const r of rs) {
+				this.sesh.session.add_rule(r, {from: "$storage", context_module: module});
+			}
+		}
+		// loadModule(this.sesh.session.modules[module], mod);
 
 		return this.meta.get(app);
 	}
@@ -106,7 +117,11 @@ export class PrologDO {
 		}
 		const rules: Record<string, pl.type.Rule[]> = this.sesh.session.modules[module]?.rules;
 		if (rules) {
-			this.rules.putRecord(app, module, rules);
+			for (const [pi, rule] of Object.entries(rules)) {
+				console.log("SRC_PRED", pi, rule, this.sesh.session.modules[module].src_predicates[pi]);
+				this.rules.putRecordItem(app, module, pi, rule);
+				// this.rules.putRecord(app, module, rules);
+			}
 		}
 
 		console.log("saved", app, module);
@@ -114,22 +129,16 @@ export class PrologDO {
 
 	async loadState(id: string): Promise<[Partial<PengineRequest> | undefined, pl.type.State[]]> {
 		const req = await this.query.get(id);
-		console.log("reqqq", req);
-
 		const next = await this.points.get(id) ?? [];
-		console.log("next?", next);
 		return [req, next];
 	}
 
 	async saveState(id: string, req: Partial<PengineRequest>, pts: pl.type.State[]) {
 		if (pts.length > 0) {
-			console.log("SAVING STATE...", id, pts, req);
 			this.query.put(id, req);
 			this.points.put(id, pts);
 			return true; // more
 		}
-		console.log("DELETING STATE...", id);
-		// this.query.delete(id);
 		this.points.delete(id);
 		return false; // no more
 	}
@@ -163,20 +172,60 @@ export class PrologDO {
 				meta: meta,
 			};
 		}
-		
 
-		if (req.src_text) {
-			this.sesh.session.consult(req.src_text, {
+		if (req.application) {
+			meta.application = req.application;
+			const app = this.env.PENGINES_APP_DO.get(
+				this.env.PENGINES_APP_DO.idFromName(req.application));
+
+			console.log("RDY?", this.appSocket, this.appSocket?.readyState);
+
+			if (!this.appSocket || this.appSocket.readyState !== this.appSocket.OPEN) {
+				const resp = await app.fetch(`http://${req.application}`, {
+					headers: {
+						Upgrade: "websocket",
+					},
+				});
+
+				const ws = resp.webSocket;
+				if (!ws) {
+					throw new Error("server didn't accept WebSocket");
+				}
+
+				ws.accept();
+				this.appSocket = ws;
+				console.log("contexted", ws);
+
+				// Now you can send and receive messages like before.
+				ws.send("hello");
+				ws.addEventListener("message", msg => {
+					console.log("GOTMSG", msg);
+				});
+			}	
+
+			const update = new Request(`http://${req.application}/dump.pl`);
+			const result = await app.fetch(update);
+			const prog = await result.text();
+			if (!result.ok) {
+				throw makeError("consult_app_error", result.status);
+			}
+			meta.app_src = prog;
+			this.sesh.session.modules.app = new pl.type.Module("app", {}, "all", {
+				session: this.sesh.session,
+				dependencies: ["system"]
+			});
+			this.sesh.session.consult(prog, {
+				from: "$pengines-app",
+				context_module: "app",
 				reconsult: true,
 				url: false,
 				html: false,
 				success: function() {
-					meta.src_text = req.src_text;
-					console.log("consulted text:", req.src_text);
-				},
-				error: function(err: any) {
-					console.error("invalid src_text:", req.src_text);
-					throw makeError("consult_error", err, "src_text");
+					console.log("synced w/ app");
+				}.bind(this),
+				error: function(err) {
+					console.error("invalid app text:", prog);
+					throw makeError("consult_error", err, functor("application", req.application));
 				}
 			});
 		}
@@ -195,6 +244,7 @@ export class PrologDO {
 
 				console.log("consulted url", url, prog.slice(0, 64));
 				this.sesh.session.consult(prog, {
+					from: url,
 					reconsult: true,
 					url: false,
 					html: false,
@@ -212,6 +262,23 @@ export class PrologDO {
 			}
 		}
 
+		if (req.src_text) {
+			this.sesh.session.consult(req.src_text, {
+				from: "$src_text",
+				reconsult: true,
+				url: false,
+				html: false,
+				success: function() {
+					meta.src_text = req.src_text;
+					console.log("consulted text:", req.src_text);
+				},
+				error: function(err: any) {
+					console.error("invalid src_text:", req.src_text);
+					throw makeError("consult_error", err, "src_text");
+				}
+			});
+		}
+
 		if (!req.ask && !req.next) {
 			if (persist) {
 				this.saveRules(meta);
@@ -224,7 +291,7 @@ export class PrologDO {
 			};
 		}
 
-		console.log("Ask:", req, "SESH", this.sesh, "NEXT?", next);
+		// console.log("Ask:", req, "SESH", this.sesh, "NEXT?", next);
 		this.req = req;
 
 		// const answers = this.sesh.query(req.ask);
@@ -271,7 +338,31 @@ export class PrologDO {
 		}
 		rest = query.thread.points;
 		const output = query.output();
-		console.log("OUT?", output);
+
+		const tx = query.tx();
+		if (tx) {
+			const appTx = [];
+			for (const op of tx) {
+				if (op.args[0]?.indicator == ":/2" && op.args[0]?.args[0] == "app") {
+					appTx.push(op);
+				}
+			}
+			if (req.application && appTx.length > 0) {
+				const txQuery = tx.map(t => t.toString({session: this.sesh.session, quoted: true, ignore_ops: true})).join(", ") + ".";
+				console.log("TX query:", txQuery);
+				const app = this.env.PENGINES_APP_DO.get(
+					this.env.PENGINES_APP_DO.idFromName(req.application));
+				const update = new Request(`http://${req.application}/exec`, {
+					method: "POST",
+					body: txQuery,
+				});
+				const result = await app.fetch(update);
+				if (!result.ok) {
+					throw("TX FAILED");
+				}
+				meta.app_src = await result.text();	
+			}
+		}
 
 		if (persist) {
 			this.saveRules(meta);

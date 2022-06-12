@@ -2,11 +2,18 @@ import { HTMLResponse } from "@worker-tools/html";
 
 import { DEFAULT_APPLICATION, PengineRequest } from "./pengines";
 import { PengineResponse } from "./response";
+import { parseRequest, parseResponse } from "./unholy";
+import { renderApplication } from "./views/app";
 import { renderIndex } from "./views/index";
 import { renderPengine } from "./views/pengine";
 
+export interface Env {
+	PROLOG_DO: DurableObjectNamespace;
+	PENGINES_APP_DO: DurableObjectNamespace;
+}
+
 export default {
-	async fetch(request: Request, env: any): Promise<Response> {
+	async fetch(request: Request, env: Env): Promise<Response> {
 		const url = new URL(request.url);
 		const app = url.searchParams.get("application") || DEFAULT_APPLICATION;
 		let idParam = url.searchParams.get("id");
@@ -54,6 +61,36 @@ export default {
 			return new HTMLResponse(content);
 		}
 
+		if (url.pathname.startsWith("/app/")) {
+			const appID = env.PENGINES_APP_DO.idFromName(idParam);
+			const appDO = env.PENGINES_APP_DO.get(appID);
+
+			url.searchParams.set("application", idParam);
+			url.pathname = request.method == "POST" ? "/set" : "/";
+			const href = url.toString();
+
+			let resp: Response;
+			if (request.method == "POST") {
+				const formData = await request.formData();
+				const body = {
+					src_text: formData.get("src_text"),
+					title: formData.get("title"),
+					src_urls: [],
+				};
+				const json = JSON.stringify(body);
+				resp = await appDO.fetch(new Request(href, {
+					method: "POST",
+					body: json,
+				}));
+			} else {
+				resp = await appDO.fetch(new Request(href));
+			}
+			const result = await parseResponse(resp);
+			console.log("RESULT", result);
+			const content = renderApplication(result, url.searchParams);
+			return new HTMLResponse(content);
+		}
+
 		const form = url.searchParams;
 		console.log("form", form);
 
@@ -94,3 +131,4 @@ const corsHeaders = {
 };
 
 export { PrologDO } from "./pengines";
+export { ApplicationDO } from "./application";

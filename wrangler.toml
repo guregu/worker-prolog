@@ -9,7 +9,14 @@ compatibility_date = "2022-05-14"
     class_name = "PrologDO"
     # The script where the Durable Object is defined (if it is external to this Worker)
     script_name = ""
+[[durable_objects.bindings]]
+    name = "PENGINES_APP_DO"
+    class_name = "ApplicationDO"
 
 [[migrations]]
 tag = "v1"  
 new_classes = ["PrologDO"] 
+[[migrations]]
+tag = "v2"  
+new_classes = ["ApplicationDO"]
+
