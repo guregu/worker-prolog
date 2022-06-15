@@ -144,6 +144,11 @@ export const indexStyle = html`
 			width: min(calc(100% - 8px), 80ch);
 		}
 
+		#src {
+			max-height: 50vh;
+			overflow-y: auto;
+		}
+
 		input, textarea, .growtext .spacer {
 				font-size: 16px;
 				tab-size: 4;

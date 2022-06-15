@@ -457,7 +457,10 @@ export class PengineDO extends PrologDO {
 		case "hello":
 			break;
 		case "query":
-			const result = await this.exec(id, {id: id, ask: fixQuery(msg.query), format: "json"}, 0, true);
+			const req = await parseAskJSON(this.pl.session, msg.query);
+			req.id = id;
+			req.format = "json";
+			const result = await this.exec(id, req, 0, true);
 			const resp = await formatResponse("json", result, this.pl.session).json();
 			const html = await (new HTMLResponse(renderResult(resp as PengineResponse))).text();
 			this.broadcast("result:" + html);
@@ -601,5 +604,5 @@ async function parseAsk(sesh: Prolog, ask: string): Promise<Partial<PengineReque
 
 interface SocketMessage {
 	cmd: "hello" | "query",
-	query?: string
+	query?: PengineRequest
 }

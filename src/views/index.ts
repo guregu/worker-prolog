@@ -65,11 +65,13 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 					</details>
 				</section>`}
 
-				<section id="src" class="growtext">
-					<div class="spacer" aria-hidden="true">${meta?.src_text ?? params.get("src_text")}</div>
-					<textarea id="src_text" name="src_text" form="query-form"
-						class="${meta?.src_text && "loaded"}" spellcheck="false"
-						placeholder="% Prolog code goes here">${meta?.src_text ?? params.get("src_text")}</textarea>
+				<section id="src">
+					<div class="growtext">
+						<div class="spacer" aria-hidden="true">${meta?.src_text ?? params.get("src_text")}</div>
+						<textarea id="src_text" name="src_text" form="query-form"
+							class="${meta?.src_text && "loaded"}" spellcheck="false"
+							placeholder="% Prolog code goes here">${meta?.src_text ?? params.get("src_text")}</textarea>
+					</div>
 				</section>
 
 				<section id="query">
@@ -175,7 +177,11 @@ SRC_TEXT.addEventListener("blur", refreshExamples);
 
 function send(event) {
 	console.log(event);
-	socket.send({cmd: "query", query: document.getElementById("ask").value});
+	var query = {
+		ask: document.getElementById("ask").value,
+		src_text: document.getElementById("src_text").value || undefined;
+	};
+	socket.send({cmd: "query", query: query});
 }
 
 window.Socket = function(url, hello) {
