@@ -149,6 +149,10 @@ export const indexStyle = html`
 				tab-size: 4;
 		}
 
+		fieldset.answer {
+			border: 1px solid lightgrey;
+		}
+
 		table.form {
 				width: 98%;
 		}
@@ -179,7 +183,7 @@ export const indexStyle = html`
 			font-size: medium;
 			margin: 0.3em;
     		padding: 1em;
-			white-space: pre;
+			white-space: pre-wrap;
 			overflow: auto;
 			word-break: keep-all;
 			overflow-wrap: normal;

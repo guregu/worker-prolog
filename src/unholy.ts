@@ -1,4 +1,4 @@
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 2;
 const PROTO_KEY = "$$proto";
 
 export class Store<T> {

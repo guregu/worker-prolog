@@ -7,6 +7,9 @@ export class PrologDO {
 	pl!: Prolog;
 	rules: Store<pl.type.Rule[]>;
 
+	sockets: Map<string, WebSocket> = new Map();
+	onmessage?: (id: string, from: string, msg: any) => void;
+
 	constructor(state: DurableObjectState, env) {
 		this.state = state;
 		this.rules = new Store(this.state.storage, "rules", pl.type);
@@ -118,6 +121,48 @@ export class PrologDO {
 		}
 		await this.save();
 		return results;
+	}
+
+	async handleSession(id: string, websocket: WebSocket, from: string) {
+		websocket.accept();
+		this.sockets.set(from, websocket);
+		websocket.addEventListener("message", async (msg) => {
+			if (this.onmessage) {
+				this.onmessage(id, from, msg.data);
+			}
+		});
+
+		websocket.addEventListener("close", async (evt) => {
+			this.sockets.delete(from);
+		});
+	}
+
+	async handleWebsocket(id: string, request: Request, fromID?: string) {
+		const upgradeHeader = request.headers.get("Upgrade");
+		if (upgradeHeader !== "websocket") {
+			return new Response("Expected websocket", { status: 400 });
+		}
+
+		const url = new URL(request.url);
+		const from = fromID ?? url.pathname.slice(1);
+		const [client, server] = Object.values(new WebSocketPair());
+		await this.handleSession(id, server as unknown as WebSocket, from);
+
+		return new Response(null, {
+			status: 101,
+			webSocket: client
+		});
+	}
+
+	broadcast(msg: string, exclude?: string) {
+		console.log("broadcastin", this.sockets.size);
+		for (const [id, socket] of this.sockets) {
+			if (exclude && id == exclude) {
+				continue;
+			}
+			// console.log("broadcast to", id, "->", msg);
+			socket.send(msg);
+		}
 	}
 }
 

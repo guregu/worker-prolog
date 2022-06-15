@@ -6,6 +6,8 @@ import { dumpModule, PrologDO } from "./prolog-do";
 import { Store } from "./unholy";
 import { ErrorEvent, formatResponse, PengineResponse, prologResponse, serializeTerm } from "./response";
 import { Env } from ".";
+import { renderResult } from "./views";
+import { BufferedHTMLResponse, HTMLResponse } from "@worker-tools/html";
 
 export const DEFAULT_APPLICATION = "pengine_sandbox";
 
@@ -34,7 +36,8 @@ export interface PengineMetadata {
 	title: string,
 
 	application?: string,
-	app_src?: string
+	app_src?: string,
+	listeners?: string[]
 }
 
 export class PengineDO extends PrologDO {
@@ -54,11 +57,20 @@ export class PengineDO extends PrologDO {
 		this.points = new Store(this.state.storage, "points", pl.type);
 		this.query = new Store(this.state.storage, "query", pl.type);
 		this.meta = new Store(this.state.storage, "meta", pl.type);
+		this.onmessage = async (id: string, from: string, raw: any) => {
+			const msg = JSON.parse(raw) as SocketMessage;
+			this.handleMessage(id, from, msg);
+		}
 	}
 
 	async fetch(request: Request) {
 		const url = new URL(request.url);
 		console.log("request:", url.pathname);
+
+		if (request.headers.get("Upgrade") == "websocket") {
+			return this.handleWebsocket("a", request, crypto.randomUUID());
+		}
+
 		switch (url.pathname) {
 		case "/favicon.ico":
 			return new Response("no", { status: 404 });
@@ -104,6 +116,7 @@ export class PengineDO extends PrologDO {
 		const [parentReq, next] = await this.loadState();
 
 		console.log("##############", meta, parentReq, next);
+		console.log("REQQQQ######", id, req);
 
 		if (req.stop) {
 			console.log("TODO: stop", req);	
@@ -152,12 +165,13 @@ export class PengineDO extends PrologDO {
 
 					ws.accept();
 					this.appSocket = ws;
-					console.log("contexted", ws);
+					console.log("connected to websocket", ws, req.application);
 
 					ws.send("hello");
 					ws.addEventListener("message", async (msg: MessageEvent) => {
 						console.log("upd88:", msg.data);
 						await this.run(msg.data);
+						this.broadcast(`update:${msg.data}`);
 					});
 					await this.syncApp(app, req, meta);
 				}
@@ -251,6 +265,7 @@ export class PengineDO extends PrologDO {
 					id: id,
 					data: answer.args[0],
 					meta: meta,
+					output: query.output(),
 				};
 				return resp;
 			}
@@ -299,6 +314,7 @@ export class PengineDO extends PrologDO {
 					throw("TX FAILED");
 				}
 				meta.app_src = await result.text();	
+				this.broadcast(`update:${txQuery}`);
 			}
 		}
 		if (req.application && !tx) {
@@ -322,6 +338,7 @@ export class PengineDO extends PrologDO {
 				time: time,
 				output: output,
 				meta: meta,
+				ask: req.ask,
 			};
 		} else {
 			event = {
@@ -335,6 +352,7 @@ export class PengineDO extends PrologDO {
 				slave_limit: ARBITRARY_HIGH_NUMBER,
 				output: output,
 				meta: meta,
+				ask: req.ask,
 			};
 		}
 
@@ -431,6 +449,18 @@ export class PengineDO extends PrologDO {
 			const msg = new pl.type.Term("error", [idTerm, ball]);
 			const text = msg.toString({session: this.pl.session, quoted: true, ignore_ops: false }) + ".\n";
 			return prologResponse(text);
+		}
+	}
+
+	async handleMessage(id: string, from: string, msg: SocketMessage) {
+		switch (msg.cmd) {
+		case "hello":
+			break;
+		case "query":
+			const result = await this.exec(id, {id: id, ask: fixQuery(msg.query), format: "json"}, 0, true);
+			const resp = await formatResponse("json", result, this.pl.session).json();
+			const html = await (new HTMLResponse(renderResult(resp as PengineResponse))).text();
+			this.broadcast("result:" + html);
 		}
 	}
 
@@ -567,4 +597,9 @@ async function parseAsk(sesh: Prolog, ask: string): Promise<Partial<PengineReque
 	}
 
 	return result;
+}
+
+interface SocketMessage {
+	cmd: "hello" | "query",
+	query?: string
 }

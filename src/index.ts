@@ -4,7 +4,7 @@ import { DEFAULT_APPLICATION, PengineMetadata, PengineRequest } from "./pengines
 import { PengineResponse } from "./response";
 import { parseResponse } from "./unholy";
 import { renderApplication } from "./views/app";
-import { renderIndex } from "./views/index";
+import { renderIndex, renderResult } from "./views/index";
 import { renderPengine } from "./views/pengine";
 
 export interface Env {
@@ -16,7 +16,7 @@ export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const url = new URL(request.url);
 		let idParam = url.searchParams.get("id") ?? undefined;		
-		const app = url.searchParams.get("application") || DEFAULT_APPLICATION;
+		let app = url.searchParams.get("application") || DEFAULT_APPLICATION;
 
 		switch (url.pathname) {
 		case "/favicon.ico":
@@ -31,7 +31,7 @@ export default {
 		const [id, stub] = pengineStub(env, app, idParam)
 
 		// actual pengines API
-		if (url.pathname.startsWith("/pengine/")) {
+		if (url.pathname.startsWith("/pengine/") || url.pathname.startsWith("/ws")) {
 			// maybe Cloudflare overwrites the "id" param?
 			url.searchParams.set("pengines_id", id);
 			url.hostname = id;
@@ -44,18 +44,20 @@ export default {
 		}
 
 		if (url.pathname.startsWith("/sesh/")) {
-			const resp = await stub.fetch(new Request(`https://${id}/meta`));
-			const result = await resp.json();
-			console.log("RESULT", result);
-			const content = renderPengine(result, url.searchParams);
-			return new HTMLResponse(content);
+			idParam = url.pathname.slice("/sesh/".length);
+			const bangs = idParam.split("!");
+			if (bangs.length == 2) {
+				[idParam, app] = bangs;
+			}
+			const [id, stub] = pengineStub(env, app, idParam)
+			return handleWeb(env, request, app, id, stub, false);
 		}
 
 		if (url.pathname.startsWith("/app/")) {
 			return handleApp(env, request);
 		}
 
-		return handleWeb(env, request);
+		return handleWeb(env, request, app, id, stub, true);
 	},
 };
 
@@ -92,13 +94,9 @@ async function handleApp(env: Env, request: Request) {
 	return new HTMLResponse(content);
 }
 
-async function handleWeb(env: Env, request: Request) {
+async function handleWeb(env: Env, request: Request, app: string, id: string, stub: DurableObjectStub, sandbox: boolean) {
 	const url = new URL(request.url);
 	const form = url.searchParams;
-	const app = url.searchParams.get("application") || DEFAULT_APPLICATION;
-	const idParam = url.searchParams.get("id") ?? undefined;
-
-	const [id, stub] = pengineStub(env, app, idParam);
 
 	const ask = form.get("ask") ?? undefined;
 	const src_url = form.get("src_url") ?? undefined;
@@ -124,7 +122,12 @@ async function handleWeb(env: Env, request: Request) {
 		result = await resp.json();
 	}
 
-	const content = renderIndex(ask, url.searchParams, result);
+	if (form.get("partial") == "result") {
+		const content = renderResult(result!);
+		return new HTMLResponse(content);	
+	}
+
+	const content = renderIndex(sandbox, url.searchParams, result);
 	return new HTMLResponse(content);
 }
 

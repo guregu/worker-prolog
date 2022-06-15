@@ -174,6 +174,10 @@ export function toProlog(x: any): pl.type.Value {
 			return makeList(vals);
 		}
 
+		if (x instanceof Error) {
+			return functor("js_error", x.name, x.message);
+		}
+
 		// hail mary
 		console.log("UNKNOWN TERM???", x);
 		return new pl.type.Term("???", [new pl.type.Term(`${x}`, [])]);

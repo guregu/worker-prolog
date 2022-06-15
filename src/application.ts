@@ -10,6 +10,8 @@ export interface Application {
 	id: string,
 	meta: PengineMetadata,
 	modules: Record<string, Record<string, pl.type.Rule[]>>;
+	listeners: string[];
+	dump?: string;
 }
 
 interface WebSocket {
@@ -22,7 +24,6 @@ export class ApplicationDO extends PrologDO {
 	env: any;
 	id: string | undefined;
 	meta: Store<PengineMetadata>;
-	sockets: Map<string, WebSocket> = new Map();
 
 	constructor(state: DurableObjectState, env: never) {
 		super(state, env);
@@ -42,7 +43,7 @@ export class ApplicationDO extends PrologDO {
 		this.debugdump();
 
 		if (request.headers.get("Upgrade") == "websocket") {
-			return this.handleWebsocket(request);
+			return this.handleWebsocket("a", request);
 		}
 		
 		switch (url.pathname) {
@@ -117,17 +118,18 @@ export class ApplicationDO extends PrologDO {
 		};
 	}
 
-	async info() {
+	async info(): Promise<Application> {
 		const meta = await this.getMeta();
 		return {
-			id: this.id,
+			id: this.id!,
 			meta: meta,
 			modules: this.modules(),
+			listeners: Array.from(this.sockets.keys()),
 			dump: this.dump()
 		};
 	}
 
-	dumpApp(meta: PengineMetadata) {
+	dumpApp(meta: PengineMetadata): string {
 		let out = `% app = ${this.id}, id = ${this.state.id.toString()}\n`;
 		out += meta.src_text ? meta.src_text + "\n" : "";
 		out += this.dumpModule(this.pl.session.modules.app);
@@ -152,7 +154,8 @@ export class ApplicationDO extends PrologDO {
 	}
 
 	async handleMeta(_request: Request): Promise<Response> {
-		const resp = await this.meta.get() ?? {};
+		const resp = await this.getMeta();
+		resp.listeners = Array.from(this.sockets.keys());
 		return new JSONResponse(resp);
 	}
 
@@ -183,7 +186,6 @@ export class ApplicationDO extends PrologDO {
 			this.broadcast(update, pengine);
 		}
 
-		// return new Response("true.\n");
 		const meta = await this.getMeta();
 		return prologResponse(this.dumpApp(meta));
 	}
@@ -192,45 +194,8 @@ export class ApplicationDO extends PrologDO {
 		const meta = await this.getMeta();
 		return prologResponse(this.dumpApp(meta));
 	}
+}
 
-	async handleSession(websocket: WebSocket, from: string) {
-		console.log("NEW WS", from);
-		websocket.accept();
-		this.sockets.set(from, websocket);
-		websocket.addEventListener("message", async (msg) => {
-			console.log("websocket msg", msg.data, "from", from);
-		});
+export function compileApp(mod: pl.type.Module) {
 
-		websocket.addEventListener("close", async (evt) => {
-			this.sockets.delete(from);
-			// Handle when a client closes the WebSocket connection
-			console.log("wsclose", evt);
-		});
-	}
-
-	async handleWebsocket(request: Request) {
-		const upgradeHeader = request.headers.get("Upgrade");
-		if (upgradeHeader !== "websocket") {
-			return new Response("Expected websocket", { status: 400 });
-		}
-
-		const url = new URL(request.url);
-		const from = url.pathname.slice(1);
-		const [client, server] = Object.values(new WebSocketPair());
-		await this.handleSession(server as unknown as WebSocket, from);
-
-		return new Response(null, {
-			status: 101,
-			webSocket: client
-		});
-	}
-
-	broadcast(msg: string, exclude?: string) {
-		for (const [id, socket] of this.sockets) {
-			if (exclude && id == exclude) {
-				continue;
-			}
-			socket.send(msg);
-		}
-	}
 }

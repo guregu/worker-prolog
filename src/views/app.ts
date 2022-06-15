@@ -1,4 +1,3 @@
-import pl from "tau-prolog";
 import { html, HTML } from "@worker-tools/html";
 import { favicon, indexStyle } from "./style";
 import { Application } from "../application";
@@ -48,6 +47,13 @@ export function renderApplication(app: Application, params: URLSearchParams): HT
 			</section>
 
 			<br>
+
+			${app && app.listeners.length > 0 && html`
+				<h3>Listeners</h3>
+				<ul>
+					${app.listeners.map(x => html`<li><a href="/sesh/${x}!${meta.application}">${x}</a></li>`)}
+				</ul>
+			`}
 
 			${app && html`
 					<details id="raw" class="dump">
