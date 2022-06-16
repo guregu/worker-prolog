@@ -13,10 +13,11 @@ const EXAMPLE_QUERIES: [string, string][] = [
 
 export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: PengineResponse) {
 	const meta = result?.meta ?? result?.answer?.meta ?? result?.data?.meta;
-	const id = result?.id;
+	const id = result?.id || crypto.randomUUID();
 	if (result?.event == "create" && result?.answer) {
 		result = result.answer;
 	}
+	const application = result?.meta?.application;
 	const ask = params.get("ask");
 	const title = ask ? "?- " + ask : "prolog.run";
 	let desc = "run some Prolog online real quick, just type in the code and go";
@@ -78,7 +79,7 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 
 				<section id="query">
 					<form method="GET" id="query-form" onsubmit="return send(arguments[0]),false;">
-						<input type="hidden" name="id" value="${result?.id}">
+						<input type="hidden" name="id" value="${id}">
 						<label for="ask">?- </label>
 						<input type="text" name="ask" id="ask"
 							value="${ask}"
@@ -183,11 +184,9 @@ function send(event) {
 		ask: document.getElementById("ask").value,
 		src_text: document.getElementById("src_text").value || undefined,
 		src_url: document.getElementById("src_url").value || undefined,
-		application: document.getElementById("application").value || undefined
+		${application && html`application: ${application}`}
 	};
 	var url = new URL(document.URL);
-	${id && html`
-		url.searchParams.set("id", "${id}")`}}
 	for (const [k, v] of Object.entries(query)) {
 		if (v) {
 			url.searchParams.set(k, v);
@@ -195,6 +194,7 @@ function send(event) {
 			url.searchParams.delete(k);
 		}
 	}
+	url.searchParams.set("id", "${id}");
 	history.replaceState(query, "", url.toString());
 	socket.send({cmd: "query", query: query});
 }
