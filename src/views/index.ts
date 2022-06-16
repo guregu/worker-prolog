@@ -54,8 +54,10 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 						<summary>Advanced</summary>
 						<table class="form">
 							<tr>
-								<td><label for="application">Application:</label></td>
-								<td><input type="text" placeholder="pengine_sandbox" id="application" name="application" form="query-form" value="${params.get("application")}"></td>
+								${result?.meta?.application && html`
+									<td><label for="application">Application:</label></td>
+									<td><input type="text" placeholder="pengine_sandbox" id="application" name="application" form="query-form" value="${result.meta.application}"></td>
+								`}
 							</tr>
 							<tr>
 								<td><label for="src_url">Source URL:</label></td>
@@ -95,7 +97,7 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 				<br>
 
 				${result?.meta?.app_src && html`
-					<details id="raw" class="dump">
+					<details id="app_src" class="dump">
 						<summary>Application State</summary>
 						<pre>${result?.meta?.app_src}</pre>
 					</details>`}
