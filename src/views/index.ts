@@ -179,7 +179,7 @@ function send(event) {
 	console.log(event);
 	var query = {
 		ask: document.getElementById("ask").value,
-		src_text: document.getElementById("src_text").value || undefined;
+		src_text: document.getElementById("src_text").value || undefined
 	};
 	socket.send({cmd: "query", query: query});
 }
@@ -288,7 +288,12 @@ window.Socket = function(url, hello) {
 
 const socket = new Socket(location.host + "/ws?id=${id}", {cmd: "greetings"});
 socket.handle("result", function(msg) {
-	document.getElementById("results").innerHTML = msg;
+	var box = document.getElementById("results");
+	if (box.querySelector("#welcome")) {
+		box.innerHTML = msg;
+	} else {
+		box.insertAdjacentHTML("afterbegin", msg);
+	}
 	console.log(msg);
 });
 socket.connect();
@@ -309,8 +314,8 @@ export function renderResult(result: PengineResponse): HTML {
 }
 
 function renderWelcome(): HTML {
-	return html`<main>
-		<h2>Welcome</h3>
+	return html`<main id="welcome">
+		<h2>Welcome</h2>
 		<p>
 			Are you ready to run some Prolog? Execute your query in the cloud, no JS required.<br>
 			Need RPC? <a href="https://www.swi-prolog.org/pldoc/doc_for?object=section(%27packages/pengines.html%27)" target="_blank">Pengines</a> API supported as well.
