@@ -6,6 +6,8 @@ import plStats from "tau-prolog/modules/statistics";
 import plFmt from "tau-prolog/modules/format";
 import plChrs from "tau-prolog/modules/charsio";
 
+/* eslint-disable prefer-rest-params */
+
 plLists(pl);
 plJS(pl);
 plRand(pl);
@@ -13,6 +15,7 @@ plStats(pl);
 plFmt(pl);
 plChrs(pl);
 betterJSON(pl);
+transactions(pl);
 
 // Heavily inspired by yarn/berry
 
@@ -79,7 +82,10 @@ export class Query {
 		if (typeof ask == "string") {
 			this.ask = ask;
 			this.thread.query(ask, {
-				error: function () { console.log("ERROR!!!", arguments); },
+				error: function (ball) {
+					// throw ball;
+					console.log("ERROR!!!", this.thread.format_answer(ball));
+				}.bind(this),
 				html: false,
 			});
 			return;
@@ -112,6 +118,10 @@ export class Query {
 
 	public output(): string {
 		return this.outputBuf;
+	}
+
+	public tx(): pl.type.Term[] | undefined {
+		return this.thread.tx;
 	}
 
 	public more(): boolean {
@@ -164,6 +174,10 @@ export function toProlog(x: any): pl.type.Value {
 			return makeList(vals);
 		}
 
+		if (x instanceof Error) {
+			return functor("js_error", x.name, x.message);
+		}
+
 		// hail mary
 		console.log("UNKNOWN TERM???", x);
 		return new pl.type.Term("???", [new pl.type.Term(`${x}`, [])]);
@@ -204,4 +218,21 @@ function betterJSON(pl, functor = "{}") {
 		}
 		return term2js.apply(this, arguments);
 	};
+}
+
+function transactions(pl) {
+	function replace(pi) {
+		const pred = pl.builtin.rules[pi];
+		pl.builtin.rules[pi] = function(thread: pl.type.Thread, point: pl.type.Point, atom: pl.type.Term) {
+			
+			if (!thread.tx) {
+				thread.tx = [];
+			}
+			thread.tx.push(atom);
+			pred.apply(this, arguments);
+		};
+	}
+	for (const pi of ["asserta/1", "assertz/1", "retract/1", /*"retractall/1",*/ "abolish/1"]) {
+		replace(pi);
+	}
 }

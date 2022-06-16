@@ -19,6 +19,10 @@ export interface PengineResponse {
 	operators?: Map<number, Map<string, string[]>>, // priority (number) → op ("fx" "yfx" etc) → names (TODO: unused)
 	output?: string,
 	meta?: PengineMetadata,
+	rights?: {
+		edit: boolean,
+	},
+	ask?: string,
 }
 
 export interface ErrorEvent extends PengineResponse {
@@ -159,11 +163,12 @@ function makeJSONAnswer(answer: PengineResponse | SuccessEvent, sesh?: Prolog): 
 		data: data,
 		id: answer.id,
 		more: answer.more,
-		projection: answer.projection.map(x => x.toJavaScript()),
+		projection: answer.projection.map(x => x.toJavaScript()), // FIXME: hack :-)
 		time: answer.time,
 		slave_limit: ARBITRARY_HIGH_NUMBER,
 		output: answer.output,
 		meta: answer.meta,
+		ask: answer.ask,
 	};
 }
 

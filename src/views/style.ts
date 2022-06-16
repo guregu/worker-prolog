@@ -144,9 +144,18 @@ export const indexStyle = html`
 			width: min(calc(100% - 8px), 80ch);
 		}
 
+		#src {
+			max-height: 50vh;
+			overflow-y: auto;
+		}
+
 		input, textarea, .growtext .spacer {
 				font-size: 16px;
 				tab-size: 4;
+		}
+
+		fieldset.answer {
+			border: 1px solid lightgrey;
 		}
 
 		table.form {
@@ -179,7 +188,7 @@ export const indexStyle = html`
 			font-size: medium;
 			margin: 0.3em;
     		padding: 1em;
-			white-space: pre;
+			white-space: pre-wrap;
 			overflow: auto;
 			word-break: keep-all;
 			overflow-wrap: normal;
