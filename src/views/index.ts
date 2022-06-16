@@ -181,8 +181,11 @@ function send(event) {
 		ask: document.getElementById("ask").value,
 		src_text: document.getElementById("src_text").value || undefined,
 		src_url: document.getElementById("src_url").value || undefined,
+		application: document.getElementById("application").value || undefined
 	};
 	var url = new URL(document.URL);
+	${id && html`
+		url.searchParams.set("id", "${id}")`}}
 	for (const [k, v] of Object.entries(query)) {
 		if (v) {
 			url.searchParams.set(k, v);

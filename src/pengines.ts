@@ -11,7 +11,6 @@ import { BufferedHTMLResponse, HTMLResponse } from "@worker-tools/html";
 
 export const DEFAULT_APPLICATION = "pengine_sandbox";
 
-export const CURRENT_VERSION = 6;
 export const ARBITRARY_HIGH_NUMBER = 100;
 
 export interface PengineRequest {
