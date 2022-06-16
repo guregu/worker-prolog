@@ -92,8 +92,8 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 				</section>
 
 				<section id="results">
-					${!result && !params.get("src_text") && renderWelcome()}
-					${result && renderResult(result)}
+					${(!result || result.event == "create") && renderWelcome()}
+					${result && result.event !== "create" && renderResult(result)}
 				</section>
 
 				<br>
@@ -179,11 +179,11 @@ function refreshExamples() {
 document.addEventListener("DOMContentLoaded", refreshExamples);
 SRC_TEXT.addEventListener("blur", refreshExamples);
 
-function send(event, ask) {
+function send(event, ask, src_text) {
 	console.log(event, ask);
 	var query = {
 		ask: ask || document.getElementById("ask").value,
-		src_text: document.getElementById("src_text").value || undefined,
+		src_text: src_text || document.getElementById("src_text").value || undefined,
 		src_url: document.getElementById("src_url").value || undefined,
 		${application && html`application: ${application}`}
 	};
@@ -354,7 +354,7 @@ function renderWelcome(): HTML {
 		</p>
 		<h3>Example queries</h3>
 		<ul>
-			${EXAMPLE_QUERIES.map(([src, ask]) => html`<li><a href="?ask=${ask}&src_text=${unsafeHTML(encodeURIComponent(src))}" onclick='return send(null, atob("${btoa(src)}"));'>${ask}</a></li>`)}
+			${EXAMPLE_QUERIES.map(([src, ask]) => html`<li><a href="?ask=${ask}&src_text=${unsafeHTML(encodeURIComponent(src))}" onclick='return send(null, atob("${btoa(ask)}"), atob("${btoa(src)}"));'>${ask}</a></li>`)}
 		</ul>
 		<h3>Documentation</h3>
 		<ul>
