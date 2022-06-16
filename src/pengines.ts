@@ -218,6 +218,7 @@ export class PengineDO extends PrologDO {
 				success: () => {
 					meta.src_text = req.src_text;
 					console.log("consulted text:", req.src_text);
+					this.broadcast(`src_text:${req.src_text}`);
 				},
 				error: (err: unknown) => {
 					console.error("invalid src_text:", req.src_text);
@@ -459,10 +460,27 @@ export class PengineDO extends PrologDO {
 			const req = await parseAskJSON(this.pl.session, msg.query);
 			req.id = id;
 			req.format = "json";
-			const result = await this.exec(id, req, 0, true);
-			const resp = await formatResponse("json", result, this.pl.session).json();
-			const html = await (new HTMLResponse(renderResult(resp as PengineResponse))).text();
-			this.broadcast("result:" + html);
+
+			try {
+				const result = await this.exec(id, req, Date.now(), true);
+				const resp = await formatResponse("json", result, this.pl.session).json();
+				const html = await (new HTMLResponse(renderResult(resp as PengineResponse))).text();
+				this.broadcast("result:" + html);
+			} catch(err) {
+				if (err instanceof Error) {
+					throw(err);
+				}
+				const ball = toProlog(err);
+				const x = {
+					"meta": await this.meta.get(),
+					"data": serializeTerm(ball, this.pl),
+					"event": "error",
+					"id": id,
+				};
+				console.log("ERR RESP:", ball, x, err);
+				const html = await (new HTMLResponse(renderResult(x as PengineResponse))).text();
+				this.broadcast("result:" + html);
+			}
 		}
 	}
 

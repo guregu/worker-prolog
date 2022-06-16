@@ -13,6 +13,7 @@ const EXAMPLE_QUERIES: [string, string][] = [
 
 export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: PengineResponse) {
 	const meta = result?.meta ?? result?.answer?.meta ?? result?.data?.meta;
+	const src_text = result?.meta?.src_text ?? result?.answer?.meta?.src_text ?? result?.data?.meta?.src_text;
 	const id = result?.id || crypto.randomUUID();
 	if (result?.event == "create" && result?.answer) {
 		result = result.answer;
@@ -70,10 +71,10 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 
 				<section id="src">
 					<div class="growtext">
-						<div class="spacer" aria-hidden="true">${meta?.src_text ?? params.get("src_text")}</div>
+						<div class="spacer" aria-hidden="true">${src_text}</div>
 						<textarea id="src_text" name="src_text" form="query-form"
-							class="${meta?.src_text && "loaded"}" spellcheck="false"
-							placeholder="% Prolog code goes here">${meta?.src_text ?? params.get("src_text")}</textarea>
+							class="${src_text && "loaded"}" spellcheck="false"
+							placeholder="% Prolog code goes here">${src_text}</textarea>
 					</div>
 				</section>
 
@@ -178,25 +179,27 @@ function refreshExamples() {
 document.addEventListener("DOMContentLoaded", refreshExamples);
 SRC_TEXT.addEventListener("blur", refreshExamples);
 
-function send(event) {
-	console.log(event);
+function send(event, ask) {
+	console.log(event, ask);
 	var query = {
-		ask: document.getElementById("ask").value,
+		ask: ask || document.getElementById("ask").value,
 		src_text: document.getElementById("src_text").value || undefined,
 		src_url: document.getElementById("src_url").value || undefined,
 		${application && html`application: ${application}`}
 	};
 	var url = new URL(document.URL);
+	url.pathname = "/id/${id}";
+	url.searchParams.delete("id");
 	for (const [k, v] of Object.entries(query)) {
-		if (v) {
+		if (k == "ask" && v) {
 			url.searchParams.set(k, v);
 		} else if (url.searchParams.has(k)) {
 			url.searchParams.delete(k);
 		}
 	}
-	url.searchParams.set("id", "${id}");
 	history.replaceState(query, "", url.toString());
 	socket.send({cmd: "query", query: query});
+	return !socket.ready();
 }
 
 window.Socket = function(url, hello) {
@@ -292,6 +295,10 @@ window.Socket = function(url, hello) {
 		this.handlers[channel] = fn;
 	}
 
+	this.ready = function() {
+		return this.socket && this.socket.readyState == WebSocket.OPEN;
+	}
+
 	window.addEventListener("beforeunload", function(event) {
 		this.socket.onclose = null;
 		this.socket.close(1000, "bye!");
@@ -310,6 +317,13 @@ socket.handle("result", function(msg) {
 		box.insertAdjacentHTML("afterbegin", msg);
 	}
 	console.log(msg);
+});
+socket.handle("src_text", function(txt) {
+	// TODO: nicer
+	const src_txt = document.getElementById("src_text");
+	if (src_text.value !== txt) {
+		src_text.value = txt;
+	}
 });
 socket.connect();
 				</script>
@@ -340,7 +354,7 @@ function renderWelcome(): HTML {
 		</p>
 		<h3>Example queries</h3>
 		<ul>
-			${EXAMPLE_QUERIES.map(([src, ask]) => html`<li><a href="?ask=${ask}&src_text=${unsafeHTML(encodeURIComponent(src))}">${ask}</a></li>`)}
+			${EXAMPLE_QUERIES.map(([src, ask]) => html`<li><a href="?ask=${ask}&src_text=${unsafeHTML(encodeURIComponent(src))}" onclick='return send(null, atob("${btoa(src)}"));'>${ask}</a></li>`)}
 		</ul>
 		<h3>Documentation</h3>
 		<ul>
@@ -395,6 +409,8 @@ function eventEmoji(result: PengineResponse): string {
 		return "💡";
 	case "error":
 		return "😵";
+	case "create":
+		return "✨";
 	default:
 		return "❓";
 	}

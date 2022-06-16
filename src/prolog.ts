@@ -64,27 +64,28 @@ export class Query {
 	public thread: pl.type.Thread;
 	public ask?: string;
 	
+	private consultErr: pl.type.Term;
 	private outputBuf = "";
 
 	public constructor(sesh: pl.type.Session, ask: string | pl.type.Point[]) {
 		this.thread = new pl.type.Thread(sesh);
 
 		this.thread.set_current_output(new pl.type.Stream({
-			put: function(text: string) {
+			put: (text: string) => {
 				this.outputBuf += text;
 				return true;
-			}.bind(this),
-			flush: function() {
+			},
+			flush: () => {
 				return true;
-			}.bind(this), 
+			},
 		}, "append", "worker", "text", false, "reset"));
 
 		if (typeof ask == "string") {
 			this.ask = ask;
 			this.thread.query(ask, {
-				error: function (ball) {
-					// throw ball;
-					console.log("ERROR!!!", this.thread.format_answer(ball));
+				error: function (ball: pl.type.Term) {
+					console.log("ARGZ", arguments);
+					this.consultErr = ball;
 				}.bind(this),
 				html: false,
 			});
@@ -102,6 +103,9 @@ export class Query {
 	}
 
 	public async* answer() {
+		if (this.consultErr) {
+			yield [new pl.type.Term("consult", [new pl.type.Term("src_text", [])]), this.consultErr];
+		}
 		while (true) {
 			const answer = await this.next();
 			if (!answer) {
@@ -139,9 +143,14 @@ export function makeList(array: pl.type.Value[] = [], cons = new pl.type.Term("[
 
 // returns a Prolog term like: error(kind(detail), context(ctx)).
 export function makeError(kind: string, detail?: any, context?: any): pl.type.Term<number, "error"> {
-	const term: pl.type.Term<number, "error"> = new pl.type.Term("error", [
-		new pl.type.Term(kind, detail ? [toProlog(detail)] : []),
-	]);
+	let term: pl.type.Term<number, "error">;
+	if (detail) {
+		term = new pl.type.Term("error", [
+			new pl.type.Term(kind, [toProlog(detail)]),
+		]);
+	} else {
+		term = new pl.type.Term("error", []);
+	}
 	if (context) {
 		const ctx = new pl.type.Term("context", [toProlog(context)]);
 		term.args.push(ctx);

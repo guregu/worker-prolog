@@ -43,7 +43,7 @@ export class ApplicationDO extends PrologDO {
 		this.debugdump();
 
 		if (request.headers.get("Upgrade") == "websocket") {
-			return this.handleWebsocket("a", request);
+			return this.handleWebsocket(this.id, request);
 		}
 		
 		switch (url.pathname) {

@@ -16,6 +16,11 @@ export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const url = new URL(request.url);
 		let idParam = url.searchParams.get("id") ?? undefined;		
+		if (url.pathname.startsWith("/id/")) {
+			idParam = url.pathname.slice("/id/".length);
+			url.pathname = "/"
+			url.searchParams.set("id", idParam);
+		}
 		let app = url.searchParams.get("application") || DEFAULT_APPLICATION;
 
 		switch (url.pathname) {
@@ -102,25 +107,23 @@ async function handleWeb(env: Env, request: Request, app: string, id: string, st
 	const src_url = form.get("src_url") ?? undefined;
 	const src_text = form.get("src_text") ?? undefined;
 	let result: PengineResponse | undefined;
-	if (ask || src_text || src_url) {
-		console.log("asking", id, ask, src_text, src_url);
-		const req: Partial<PengineRequest> = {
-			id: id,
-			ask: ask,
-			application: app,
-			format: "json",
-			src_text: src_text,
-			src_url: src_url,
-		};
-		const resp = await stub.fetch(new Request(`http://${id}/pengine/create`, {
-			method: "POST",
-			body: JSON.stringify(req),
-			headers: {
-				"Content-Type": "application/json; charset=UTF-8"
-			}
-		}));
-		result = await resp.json();
-	}
+	console.log("asking", id, ask, src_text, src_url);
+	const req: Partial<PengineRequest> = {
+		id: id,
+		ask: ask,
+		application: app,
+		format: "json",
+		src_text: src_text,
+		src_url: src_url,
+	};
+	const resp = await stub.fetch(new Request(`http://${id}/pengine/create`, {
+		method: "POST",
+		body: JSON.stringify(req),
+		headers: {
+			"Content-Type": "application/json; charset=UTF-8"
+		}
+	}));
+	result = await resp.json();
 
 	if (form.get("partial") == "result") {
 		const content = renderResult(result!);
