@@ -28,11 +28,12 @@ Currently **MVP** status. All of the above features work. Persistence is experim
 
 ### TODO:
 
-- [ ] Better persistence (cleaner URLs pointing at Pengines Applications instead of individual interpreter instances)
+- [ ] Better persistence
+	- [x] Application state (#2)
 	- [ ] TTL for query state, deleting stale queries via Worker Alarms
-- [ ] Uploading scripts to R2
+- [ ] Uploading scripts to R2 → replace src_text with R2 reference (cleaner URLs)
 - [ ] Cloudflare SDK library for Prolog to call directly from Prolog programs
-- [ ] Real-time query output and chat
+- [x] Real-time query output and chat (join a query with the same ID to see each other's results!)
 - [ ] Namespaces, maybe at `subdomain.prolog.run`, with customizable read/write permissions and simple user system (use OpenID?)
 
 #### If you work at Cloudflare... 🙏
