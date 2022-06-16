@@ -179,8 +179,18 @@ function send(event) {
 	console.log(event);
 	var query = {
 		ask: document.getElementById("ask").value,
-		src_text: document.getElementById("src_text").value || undefined
+		src_text: document.getElementById("src_text").value || undefined,
+		src_url: document.getElementById("src_url").value || undefined,
 	};
+	var url = new URL(document.URL);
+	for (const [k, v] of Object.entries(query)) {
+		if (v) {
+			url.searchParams.set(k, v);
+		} else if (url.searchParams.has(k)) {
+			url.searchParams.delete(k);
+		}
+	}
+	history.replaceState(query, "", url.toString());
 	socket.send({cmd: "query", query: query});
 }
 
