@@ -17,7 +17,15 @@ export default {
 		const url = new URL(request.url);
 		let idParam = url.searchParams.get("id") ?? undefined;		
 		if (url.pathname.startsWith("/id/")) {
-			idParam = url.pathname.slice("/id/".length);
+			const v = url.pathname.slice("/id/".length);
+			const colon = v.indexOf(":");
+			if (colon == -1) {
+				idParam = v;
+			} else {
+				// app:id
+				url.searchParams.set("application", v.slice(0, colon));
+				idParam = v.slice(colon+1);
+			}
 			url.pathname = "/"
 			url.searchParams.set("id", idParam);
 		}
@@ -62,7 +70,7 @@ export default {
 			return handleApp(env, request);
 		}
 
-		return handleWeb(env, request, app, id, stub, true);
+		return handleWeb(env, request, app, id, stub, app == DEFAULT_APPLICATION);
 	},
 };
 

@@ -64,10 +64,10 @@ export class PengineDO extends PrologDO {
 
 	async fetch(request: Request) {
 		const url = new URL(request.url);
-		console.log("request:", url.pathname);
+		console.log("request:", url.pathname, url.searchParams.get("id"));
 
 		if (request.headers.get("Upgrade") == "websocket") {
-			return this.handleWebsocket("a", request, crypto.randomUUID());
+			return this.handleWebsocket(url.searchParams.get("id"), request, crypto.randomUUID());
 		}
 
 		switch (url.pathname) {
@@ -113,9 +113,6 @@ export class PengineDO extends PrologDO {
 	async exec(id: string, req: Partial<PengineRequest>, start: number, persist: boolean): Promise<PengineResponse> {
 		const meta: PengineMetadata = (await this.meta.get()) ?? {src_urls: [], title: "prolog~"};
 		const [parentReq, next] = await this.loadState();
-
-		console.log("##############", meta, parentReq, next);
-		console.log("REQQQQ######", id, req);
 
 		if (req.stop) {
 			console.log("TODO: stop", req);	
@@ -167,10 +164,14 @@ export class PengineDO extends PrologDO {
 					console.log("connected to websocket", ws, req.application);
 
 					ws.send("hello");
-					ws.addEventListener("message", async (msg: MessageEvent) => {
+					ws.addEventListener("message", (msg: MessageEvent) => {
 						console.log("upd88:", msg.data);
-						await this.run(msg.data);
-						this.broadcast(`update:${msg.data}`);
+						const promise = msg.data === "true." ? 
+							this.syncApp(app, req, meta) : 
+							this.run(msg.data);
+						promise.then(() => {
+							this.broadcast(`update:${msg.data}`);
+						});
 					});
 					await this.syncApp(app, req, meta);
 				}
@@ -211,7 +212,7 @@ export class PengineDO extends PrologDO {
 
 		if (req.src_text) {
 			this.pl.session.consult(req.src_text, {
-				from: "$src_text",
+				// from: "$src_text",
 				reconsult: true,
 				url: false,
 				html: false,
@@ -485,12 +486,14 @@ export class PengineDO extends PrologDO {
 	}
 
 	async syncApp(app: DurableObjectStub, req: Partial<PengineRequest>, meta: PengineMetadata) {
+		console.log("syncing app...", app, req.application, meta);
 		const update = new Request(`http://${req.application}/dump.pl`);
 		const result = await app.fetch(update);
 		const prog = await result.text();
 		if (!result.ok) {
 			throw makeError("consult_app_error", result.status);
 		}
+		console.log("app prog for", req.application, "::", prog);
 		meta.app_src = prog;
 		this.pl.session.modules.app = new pl.type.Module("app", {}, "all", {
 			session: this.pl.session,

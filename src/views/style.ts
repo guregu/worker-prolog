@@ -73,6 +73,10 @@ export const indexStyle = html`
 				flex: 1;
 		}
 
+		#query-submit {
+			width: 5em;
+		}
+
 		/* https://qiita.com/tsmd/items/fce7bf1f65f03239eef0 */
 		
 		.growtext {
@@ -156,6 +160,19 @@ export const indexStyle = html`
 
 		fieldset.answer {
 			border: 1px solid lightgrey;
+		}
+
+		.answer p.ask {
+			font-size: smaller;
+			font-style: italic;
+		}
+		.answer p.ask a, .answer p.ask a:visited {
+			color: inherit;
+			text-decoration: none;
+		}
+		.answer p.ask a:hover {
+			color: inherit;
+			text-decoration: underline;
 		}
 
 		table.form {

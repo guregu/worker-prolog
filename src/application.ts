@@ -107,6 +107,7 @@ export class ApplicationDO extends PrologDO {
 			});
 		}
 
+		this.broadcast("true.");
 		return makeResponse(await this.info());
 	}
 

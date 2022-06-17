@@ -64,7 +64,6 @@ export class PrologDO {
 			if (mod.is_library) {
 				continue;
 			}
-			console.log("savemod?", name, mod.rules);
 			await this.rules.putRecord(name, mod.rules);
 		}
 	}
@@ -126,13 +125,13 @@ export class PrologDO {
 	async handleSession(id: string, websocket: WebSocket, from: string) {
 		websocket.accept();
 		this.sockets.set(from, websocket);
-		websocket.addEventListener("message", async (msg) => {
+		websocket.addEventListener("message", (msg) => {
 			if (this.onmessage) {
 				this.onmessage(id, from, msg.data);
 			}
 		});
 
-		websocket.addEventListener("close", async (evt) => {
+		websocket.addEventListener("close", (evt) => {
 			this.sockets.delete(from);
 		});
 	}
@@ -155,7 +154,6 @@ export class PrologDO {
 	}
 
 	broadcast(msg: string, exclude?: string) {
-		console.log("broadcastin", this.sockets.size);
 		for (const [id, socket] of this.sockets) {
 			if (exclude && id == exclude) {
 				continue;

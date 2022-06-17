@@ -1,4 +1,4 @@
-const CURRENT_VERSION = 4;
+const CURRENT_VERSION = 6;
 const PROTO_KEY = "$$proto";
 
 export class Store<T> {
@@ -45,8 +45,8 @@ export class Store<T> {
 					buf = null;
 					wip = null;
 				} else {
-					if (root != wip) {
-						console.warn("stray:", k, raw);
+					if (wip && root != wip) {
+						console.warn("stray:", k, raw, "wip:", wip);
 						continue;
 					}
 					if (n == 0) {
@@ -99,9 +99,9 @@ export class Store<T> {
 	private chunk(key: string, value: T): Record<string, string> {
 		const size = (CF_MAXSIZE-key.length-1)/2; // 2-byte per character
 		const str = JSON.stringify(value, replacer);
-		if (str.length < size) {
-			return {[key]: str};
-		}
+		// if (str.length < size) {
+		// 	return {[key]: str};
+		// }
 
 		const obj: Record<string, string> = {};
 		for (var i = 0; i*size < str.length; i++) {

@@ -51,7 +51,7 @@ export function renderApplication(app: Application, params: URLSearchParams): HT
 			${app && app.listeners.length > 0 && html`
 				<h3>Listeners</h3>
 				<ul>
-					${app.listeners.map(x => html`<li><a href="/sesh/${x}!${meta.application}">${x}</a></li>`)}
+					${app.listeners.map(x => html`<li><a href="/id/${meta.application}:${x}">${x}</a></li>`)}
 				</ul>
 			`}
 

@@ -14,11 +14,11 @@ const EXAMPLE_QUERIES: [string, string][] = [
 export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: PengineResponse) {
 	const meta = result?.meta ?? result?.answer?.meta ?? result?.data?.meta;
 	const src_text = result?.meta?.src_text ?? result?.answer?.meta?.src_text ?? result?.data?.meta?.src_text;
+	const application = result?.meta?.application ?? result?.answer?.meta?.application ?? result?.data?.meta?.application;
 	const id = result?.id || crypto.randomUUID();
 	if (result?.event == "create" && result?.answer) {
 		result = result.answer;
 	}
-	const application = result?.meta?.application;
 	const ask = params.get("ask");
 	const title = ask ? "?- " + ask : "prolog.run";
 	let desc = "run some Prolog online real quick, just type in the code and go";
@@ -31,7 +31,6 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 	if (result?.meta?.application && result.meta.application != "pengine_sandbox") {
 		subtitle = result.meta.application;
 	}
-	console.log("REZZ", result);
 	return html`
 		<!doctype html>
 		<meta name="viewport" content="width=device-width, initial-scale=1">
@@ -47,12 +46,12 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 			<body>
 				<header>
 					<h1><a href="/">𝖕𝖗𝖔𝖑𝖔𝖌.𝖗𝖚𝖓</a></h1>
-					${subtitle && html`<h2>${subtitle}</h2>`}
+					${subtitle && html`<h2>${subtitle} ${application && html`<small>(<a href="/app/${application}" target="_blank">application</a>)</small>`}</h2>`}
 				</header>
 
 				${sandbox && html`
 				<section id="settings">
-					<details>
+					<details ${meta?.src_urls?.length > 0 && html`open`}>
 						<summary>Advanced</summary>
 						<table class="form">
 							<tr>
@@ -63,7 +62,7 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 							</tr>
 							<tr>
 								<td><label for="src_url">Source URL:</label></td>
-								<td><input type="text" placeholder="https://example.com/test.pl" id="src_url" name="src_url" form="query-form" value="${params.get("src_url")}"></td>
+								<td><input type="text" placeholder="https://example.com/test.pl" id="src_url" name="src_url" form="query-form" value="${meta?.src_urls[0]}"></td>
 							</tr>
 						</table>						 
 					</details>
@@ -79,14 +78,14 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 				</section>
 
 				<section id="query">
-					<form method="GET" id="query-form" onsubmit="return send(arguments[0]),false;">
+					<form method="GET" id="query-form" onsubmit="return send(arguments[0]);">
 						<input type="hidden" name="id" value="${id}">
 						<label for="ask">?- </label>
 						<input type="text" name="ask" id="ask"
 							value="${ask}"
 							placeholder="member(X, [1, 2, 3])."
 							list=examples>
-						<input type="submit" value="Query">
+						<input type="submit" id="query-submit" value="Query">
 					</form>
 					<datalist id="examples"></datalist>
 				</section>
@@ -160,13 +159,29 @@ function updateSpacer(textarea) {
 }
 
 EXAMPLE_SIGIL = "% ?- ";
+QUERIES_SEEN = [];
 function refreshExamples() {
 	const lines = SRC_TEXT.value.split('\\n');
 	const examples = lines.filter(function(x) { return x.trim().startsWith(EXAMPLE_SIGIL); });
 	const frag = document.createDocumentFragment();
+	const vals = new Set();
 	for (const ex of examples) {
 		const opt = document.createElement("option");
+		const v = ex.slice(EXAMPLE_SIGIL.length);
+		if (vals.has(v)) {
+			continue;
+		}
+		vals.add(v);
 		opt.value = ex.slice(EXAMPLE_SIGIL.length);
+		frag.appendChild(opt);
+	}
+	for (const q of Array.from(document.querySelectorAll(".answer[data-ask]"))) {
+		const opt = document.createElement("option");
+		if (vals.has(q.dataset.ask)) {
+			continue;
+		}
+		vals.add(q.dataset.ask);
+		opt.value = q.dataset.ask;
 		frag.appendChild(opt);
 	}
 	if (examples.length > 0) {
@@ -179,17 +194,22 @@ function refreshExamples() {
 document.addEventListener("DOMContentLoaded", refreshExamples);
 SRC_TEXT.addEventListener("blur", refreshExamples);
 
+const QUERY_SUBMIT = document.getElementById("query-submit");
 function send(event, ask, src_text) {
 	console.log(event, ask);
+	const askElem = document.getElementById("ask")
+	if (ask) {
+		askElem.value = ask;
+	}
 	var query = {
-		ask: ask || document.getElementById("ask").value,
+		ask: ask || askElem.value,
 		src_text: src_text || document.getElementById("src_text").value || undefined,
-		src_url: document.getElementById("src_url").value || undefined,
-		${application && html`application: ${application}`}
+		src_url: document.getElementById("src_url")?.value || undefined,
 	};
 	var url = new URL(document.URL);
-	url.pathname = "/id/${id}";
+	url.pathname = "/id/${application && html`${application}:`}${id}";
 	url.searchParams.delete("id");
+	url.searchParams.delete("application");
 	for (const [k, v] of Object.entries(query)) {
 		if (k == "ask" && v) {
 			url.searchParams.set(k, v);
@@ -199,7 +219,20 @@ function send(event, ask, src_text) {
 	}
 	history.replaceState(query, "", url.toString());
 	socket.send({cmd: "query", query: query});
-	return !socket.ready();
+	if (socket.ready()) {
+		// TODO: show loading...
+		QUERY_SUBMIT.value = "...";
+		return false;
+	}
+	return undefined;
+}
+
+function setAsk(txt) {
+	const ask = document.getElementById("ask");
+	ask.value = txt;
+	ask.focus();
+	ask.scrollIntoView({behavior: "smooth"});
+	return false;
 }
 
 window.Socket = function(url, hello) {
@@ -316,7 +349,8 @@ socket.handle("result", function(msg) {
 	} else {
 		box.insertAdjacentHTML("afterbegin", msg);
 	}
-	console.log(msg);
+	QUERY_SUBMIT.value = "Query";
+	refreshExamples();
 });
 socket.handle("src_text", function(txt) {
 	// TODO: nicer
@@ -324,6 +358,7 @@ socket.handle("src_text", function(txt) {
 	if (src_text.value !== txt) {
 		src_text.value = txt;
 	}
+	refreshExamples();
 });
 socket.connect();
 				</script>
@@ -336,7 +371,7 @@ export function renderResult(result: PengineResponse): HTML {
 	return html`
 	<fieldset class="answer" data-ask="${result.ask}">
 		<legend><span>${eventEmoji(result)} ${new Date().toLocaleTimeString()}</span></legend>
-		<!-- <div class="ask">${result.ask}</div> -->
+		<p class="ask"><a href="#src_text" onclick="return setAsk(atob('${btoa(result.ask ?? '')}'));">${result.ask}</a></p>
 		<blockquote class="output">${result?.output}</blockquote>
 		${renderAnswersTable(result)}
 	</fieldset>`;
@@ -354,7 +389,7 @@ function renderWelcome(): HTML {
 		</p>
 		<h3>Example queries</h3>
 		<ul>
-			${EXAMPLE_QUERIES.map(([src, ask]) => html`<li><a href="?ask=${ask}&src_text=${unsafeHTML(encodeURIComponent(src))}" onclick='return send(null, atob("${btoa(ask)}"), atob("${btoa(src)}"));'>${ask}</a></li>`)}
+			${EXAMPLE_QUERIES.map(([src, ask]) => html`<li><a href="?ask=${ask}&src_text=${unsafeHTML(encodeURIComponent(src))}" onclick='return send(null, atob("${btoa(ask)}"), ${src ? html`atob("${btoa(src)}")` : html`undefined`});'>${ask}</a></li>`)}
 		</ul>
 		<h3>Documentation</h3>
 		<ul>
@@ -478,7 +513,7 @@ function renderAnswerTable(projection: string[], x: Record<string, any>): HTML {
 	const entries = Object.entries(x);
 
 	if (entries.length == 0) {
-		return html`<b class="answer true">yes</b>`;
+		return html`<b class="answer true">yes</b>&nbsp;`;
 	}
 
 	/* eslint-disable indent */
@@ -521,7 +556,7 @@ function renderDescription(result: PengineResponse): string {
 }
 
 function renderTerm(x: any): HTML {
-	console.log("REnderTerm", x);
+	// console.log("REnderTerm", x);
 	switch (typeof x) {
 	case "number":
 		return html`${x}`;
