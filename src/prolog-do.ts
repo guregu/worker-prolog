@@ -1,5 +1,5 @@
 import pl from "tau-prolog";
-import { Prolog, Query } from "./prolog";
+import { functor, makeList, Prolog, Query } from "./prolog";
 import { Store } from "./unholy";
 
 export class PrologDO {
@@ -59,9 +59,9 @@ export class PrologDO {
 		console.log("____DEBUG DUMP___", all);
 	}
 
-	async save() {
+	async save(exclude?: string[]) {
 		for (const [name, mod] of Object.entries(this.pl.session.modules) as [string, pl.type.Module][]) {
-			if (mod.is_library) {
+			if (mod.is_library || exclude?.includes(name)) {
 				continue;
 			}
 			await this.rules.putRecord(name, mod.rules);
@@ -87,10 +87,11 @@ export class PrologDO {
 			name = mod.id;
 		}
 
-		let prog = "";
 		// const moduleTerm = new pl.type.Term(name, []);
+
+		let prog = `%%% ${mod.id} as ${name}\n`;
+		prog += `:- module(app, [${Object.keys(mod.rules).join(",")}]).\n`
 		for (const [pi, rs] of Object.entries(mod.rules) as [string, pl.type.Rule[]][]) {
-			// prog += `:- dynamic(${name}:${pi}).\n`;
 			prog += `:- dynamic(${pi}).\n`;
 			for (const r of rs) {
 				const rule = r;

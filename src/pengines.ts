@@ -10,8 +10,8 @@ import { renderResult } from "./views";
 import { BufferedHTMLResponse, HTMLResponse } from "@worker-tools/html";
 
 export const DEFAULT_APPLICATION = "pengine_sandbox";
-
 export const ARBITRARY_HIGH_NUMBER = 100;
+export const MAGIC_MODULES = ["app"];
 
 export interface PengineRequest {
 	id: string,
@@ -111,13 +111,13 @@ export class PengineDO extends PrologDO {
 	}
 
 	async exec(id: string, req: Partial<PengineRequest>, start: number, persist: boolean): Promise<PengineResponse> {
-		const meta: PengineMetadata = (await this.meta.get()) ?? {src_urls: [], title: "prolog~"};
+		const meta: PengineMetadata = (await this.meta.get()) ?? {src_urls: [], title: ""};
 		const [parentReq, next] = await this.loadState();
 
 		if (req.stop) {
 			console.log("TODO: stop", req);	
 			if (persist) {
-				this.save();
+				this.save(MAGIC_MODULES);
 				// TODO: this.deleteState(id);
 			}
 			return {
@@ -129,7 +129,7 @@ export class PengineDO extends PrologDO {
 		if (req.destroy) {
 			console.log("TODO: destroy", req);
 			if (persist) {
-				this.save();
+				this.save(MAGIC_MODULES);
 			}
 			return {
 				event: "destroy",
@@ -231,7 +231,7 @@ export class PengineDO extends PrologDO {
 		if (!req.ask && !req.next) {
 			if (persist) {
 				this.meta.put(meta);
-				this.save();
+				this.save(MAGIC_MODULES);
 			}
 			return {
 				event: "create",
@@ -324,7 +324,7 @@ export class PengineDO extends PrologDO {
 
 		if (persist) {
 			this.meta.put(meta);
-			this.save();
+			this.save(MAGIC_MODULES);
 		}
 		const more = await this.saveState(parentReq ?? req, rest);
 
@@ -495,13 +495,9 @@ export class PengineDO extends PrologDO {
 		}
 		console.log("app prog for", req.application, "::", prog);
 		meta.app_src = prog;
-		this.pl.session.modules.app = new pl.type.Module("app", {}, "all", {
-			session: this.pl.session,
-			dependencies: ["system"]
-		});
 		this.pl.session.consult(prog, {
+			session: this.pl.session,
 			from: "$pengines-app",
-			context_module: "app",
 			reconsult: true,
 			url: false,
 			html: false,

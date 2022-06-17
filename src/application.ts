@@ -70,6 +70,13 @@ export class ApplicationDO extends PrologDO {
 		req.application = this.id;
 		await this.meta.put(req);
 
+		if (!this.pl.session.modules.app) {
+			this.pl.session.modules.app = new pl.type.Module("app", {}, "all", {
+				session: this.pl.session,
+				dependencies: ["system"]
+			});
+		}
+
 		for (const url of req.src_urls) {
 			const resp = await fetch(new Request(url));
 			if (resp.status != 200) {
@@ -79,6 +86,7 @@ export class ApplicationDO extends PrologDO {
 
 			console.log("consulted url", url, prog.slice(0, 64));
 			this.pl.session.consult(prog, {
+				context_module: "app",
 				reconsult: true,
 				url: false,
 				html: false,
@@ -94,6 +102,7 @@ export class ApplicationDO extends PrologDO {
 
 		if (req.src_text) {
 			this.pl.session.consult(req.src_text, {
+				context_module: "app",
 				reconsult: true,
 				url: false,
 				html: false,
@@ -126,13 +135,13 @@ export class ApplicationDO extends PrologDO {
 			meta: meta,
 			modules: this.modules(),
 			listeners: Array.from(this.sockets.keys()),
-			dump: this.dump()
+			dump: this.dumpApp(meta)
 		};
 	}
 
 	dumpApp(meta: PengineMetadata): string {
 		let out = `% app = ${this.id}, id = ${this.state.id.toString()}\n`;
-		out += meta.src_text ? meta.src_text + "\n" : "";
+		// out += meta.src_text ? meta.src_text + "\n" : "";
 		out += this.dumpModule(this.pl.session.modules.app);
 		return out;
 	}
