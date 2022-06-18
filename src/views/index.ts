@@ -205,6 +205,7 @@ function send(event, ask, src_text) {
 		ask: ask || askElem.value,
 		src_text: src_text || document.getElementById("src_text").value || undefined,
 		src_url: document.getElementById("src_url")?.value || undefined,
+		application: "${application}",
 	};
 	var url = new URL(document.URL);
 	url.pathname = "/id/${application && html`${application}:`}${id}";

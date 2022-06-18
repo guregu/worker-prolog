@@ -73,7 +73,7 @@ export class ApplicationDO extends PrologDO {
 		if (!this.pl.session.modules.app) {
 			this.pl.session.modules.app = new pl.type.Module("app", {}, "all", {
 				session: this.pl.session,
-				dependencies: ["system"]
+				dependencies: ["system", "lists", "js", "random", "format", "charsio"]
 			});
 		}
 
@@ -86,6 +86,7 @@ export class ApplicationDO extends PrologDO {
 
 			console.log("consulted url", url, prog.slice(0, 64));
 			this.pl.session.consult(prog, {
+				session: this.pl.session,
 				context_module: "app",
 				reconsult: true,
 				url: false,
@@ -102,12 +103,16 @@ export class ApplicationDO extends PrologDO {
 
 		if (req.src_text) {
 			this.pl.session.consult(req.src_text, {
+				session: this.pl.session,
 				context_module: "app",
 				reconsult: true,
 				url: false,
 				html: false,
-				success: function() {
+				success: () => {
 					console.log("consulted text:", req.src_text);
+					for (const warning of this.pl.session.get_warnings()) {
+						console.error(warning);
+					}
 				},
 				error: function(err: unknown) {
 					console.error("invalid src_text:", req.src_text);
@@ -115,6 +120,8 @@ export class ApplicationDO extends PrologDO {
 				}
 			});
 		}
+
+
 
 		this.broadcast("true.");
 		return makeResponse(await this.info());
@@ -192,7 +199,7 @@ export class ApplicationDO extends PrologDO {
 		if (changes.length > 0) {
 			const update = changes
 				.map(x => x.toString({session: this.pl.session, quoted: true, ignore_ops: false}))
-				.join(", ") + ".";
+				.join("; ") + ".";
 			this.broadcast(update, pengine);
 		}
 

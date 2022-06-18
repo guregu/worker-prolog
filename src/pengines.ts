@@ -192,6 +192,7 @@ export class PengineDO extends PrologDO {
 
 				console.log("consulted url", url, prog.slice(0, 64));
 				this.pl.session.consult(prog, {
+					session: this.pl.session,
 					from: url,
 					reconsult: true,
 					url: false,
@@ -212,6 +213,7 @@ export class PengineDO extends PrologDO {
 
 		if (req.src_text) {
 			this.pl.session.consult(req.src_text, {
+				session: this.pl.session,
 				// from: "$src_text",
 				reconsult: true,
 				url: false,
@@ -294,12 +296,13 @@ export class PengineDO extends PrologDO {
 		if (tx) {
 			const appTx = [];
 			for (const op of tx) {
+				console.log("TX OP:", op.toString(), "APP", req.application);
 				if (op.args[0]?.indicator == ":/2" && op.args[0]?.args[0] == "app") {
 					appTx.push(op);
 				}
 			}
 			if (req.application && req.application != DEFAULT_APPLICATION && appTx.length > 0) {
-				const txQuery = tx.map(t => t.toString({session: this.pl.session, quoted: true, ignore_ops: true})).join(", ") + ".";
+				const txQuery = tx.map(t => t.toString({session: this.pl.session, quoted: true, ignore_ops: true})).join("; ") + ".";
 				console.log("TX query:", txQuery);
 				const app = this.env.PENGINES_APP_DO.get(
 					this.env.PENGINES_APP_DO.idFromName(req.application));

@@ -91,6 +91,10 @@ export class PrologDO {
 
 		let prog = `%%% ${mod.id} as ${name}\n`;
 		prog += `:- module(app, [${Object.keys(mod.rules).join(",")}]).\n`
+		for (const dep of mod.dependencies) {
+			if (dep == "system") { continue; }
+			prog += `:- use_module(library(${dep})).\n`;
+		}
 		for (const [pi, rs] of Object.entries(mod.rules) as [string, pl.type.Rule[]][]) {
 			prog += `:- dynamic(${pi}).\n`;
 			for (const r of rs) {
