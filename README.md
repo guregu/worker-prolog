@@ -21,6 +21,10 @@ Serverless persistent Prolog via [Tau Prolog](http://www.tau-prolog.org/) and [C
 	- Interpreter state and dynamic knowledge base is persistent
 		- Clauses added/removed with `assertz/1` and `retractall/1` et. al. are saved via Durable Objects, letting you use prolog.run as a persistent database.
 	- Query state is also persistent (Pengines chunk option is supported in the API, but no UI for it yet)
+	- Interpreters can link to "applications" to keep track of shared state and code. Application state is synced between interpreters.
+		- Applications manifest as a special `app` module at the moment.
+		- See: [**Guestbook Example**](https://prolog.run/id/guestbook:test?ask=app%3Asigned%28Time%2C+User%2C+Msg%29).
+		- Still a work in progress!
 
 ## Development Status
 
@@ -29,7 +33,7 @@ Currently **MVP** status. All of the above features work. Persistence is experim
 ### TODO:
 
 - [ ] Better persistence
-	- [x] Application state (#2)
+	- [x] Application state ([#2](https://github.com/guregu/worker-prolog/pull/2))
 	- [ ] TTL for query state, deleting stale queries via Worker Alarms
 - [ ] Uploading scripts to R2 → replace src_text with R2 reference (cleaner URLs)
 - [ ] Cloudflare SDK library for Prolog to call directly from Prolog programs
@@ -49,7 +53,7 @@ My vague goal for this project is to facilitate an easy way to experiment with t
 Cool stuff I'd like to try:
 
 - Displaying form elements via Prolog scripts for easy input/output to take advantage of persistence
-	- See the [Guestbook Demo](https://prolog.run/?id=guestbook&src_text=%3A-+dynamic%28signed%2F3%29.%0D%0A%0D%0Asign%28By%2C+Msg%29+%3A-%0D%0A%09get_time%28T%29%2C%0D%0A%09findall%28X%2C+time_property%28T%2C+X%29%2C+Date%29%2C%0D%0A%09asserta%28signed%28By%2C+Date%2C+Msg%29%29.%0D%0A%0D%0A%25+%3F-+sign%28anonymous%2C+%27hello+%E4%B8%96%E7%95%8C%27%29.%0D%0A%25+%3F-+signed%28By%2C+Date%2C+Msg%29.&ask=) for a taste of what it could become.
+	- See the [Guestbook Demo](https://prolog.run/id/guestbook:test?ask=app%3Asigned%28Time%2C+User%2C+Msg%29) for a taste of what it could become.
 - Support for rendering output to an alternative protocol like Gemini
 - Using prolog.run as the dynamic backend of a statically deployed site
 

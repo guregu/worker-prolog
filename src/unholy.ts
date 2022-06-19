@@ -60,8 +60,12 @@ export class Store<T> {
 					continue;
 				}
 			}
-			const v = JSON.parse(raw as string, this.reviver);
-			record[k.slice(path.length)] = v;
+			try {
+				const v = JSON.parse(raw as string, this.reviver);
+				record[k.slice(path.length)] = v;
+			} catch (ex) {
+				console.warn("failed to parse json:", path, ex);
+			}
 		}
 		return record;
 	}
@@ -77,7 +81,7 @@ export class Store<T> {
 		for (const [key, value] of Object.entries(record)) {
 			const path = this.recordPath(prefix, key);
 			const chunks = this.chunk(path, value)
-			puts.push(this.storage.put(chunks));
+			puts.push(this.multiput(chunks));
 		}
 		return Promise.all(puts);
 	}
@@ -85,7 +89,7 @@ export class Store<T> {
 	public async putRecordItem(prefix: string, key: string, value: T) {
 		const path = this.recordPath(prefix, key);
 		const chunks = this.chunk(path, value)
-		return this.storage.put(chunks);
+		return this.multiput(chunks);
 	}
 
 	public async delete(): Promise<boolean> {
@@ -94,6 +98,13 @@ export class Store<T> {
 
 	private encode(value: T): string {
 		return JSON.stringify(value, replacer);
+	}
+
+	private multiput(chunks: Record<string, string>) {
+		for (const [k, v] of Object.entries(chunks)) {
+			this.storage.put(k, v);
+		}
+		// return this.storage.put(chunks);
 	}
 
 	private chunk(key: string, value: T): Record<string, string> {
@@ -106,7 +117,7 @@ export class Store<T> {
 		const obj: Record<string, string> = {};
 		for (var i = 0; i*size < str.length; i++) {
 			const pos = i*size;
-			const chunk = str.slice(pos, pos+size);
+			const chunk = str.slice(pos, pos+size+1);
 			obj[`${key}#${i}`] = chunk;
 		}
 		obj[`${key}#${i}`] = EOF;
