@@ -1,6 +1,7 @@
 import { html, HTML } from "@worker-tools/html";
 import { favicon, indexStyle } from "./style";
 import { Application } from "../application";
+import { texteditJS } from "./js";
 
 // TODO: work in progress for rendering "app data" for long-running Pengines
 export function renderApplication(app: Application, params: URLSearchParams): HTML {
@@ -23,15 +24,13 @@ export function renderApplication(app: Application, params: URLSearchParams): HT
 				<label for="title">Title</label>: <input type="text" name="title" id="title" value="${meta.title}" form="app-form">
 			</section>
 
-			<section id="src" class="growtext">
-				<div class="spacer" aria-hidden="true">${meta?.src_text}</div>
-				<textarea id="src_text" name="src_text" form="app-form"
-					class="${meta?.src_text && "loaded"}" spellcheck="false"
-					placeholder="% Prolog code goes here">${meta?.src_text}</textarea>
-			</section>
-
-			<section id="dump">
-				<pre>${app?.dump}</pre>
+			<section id="src">
+				<div class="growtext">
+					<div class="spacer" aria-hidden="true">${meta?.src_text}</div>
+					<textarea id="src_text" name="src_text" form="app-form"
+						class="${meta?.src_text && "loaded"}" spellcheck="false"
+						placeholder="% Prolog code goes here">${meta?.src_text}</textarea>
+				</div>
 			</section>
 
 			<section id="query">
@@ -50,6 +49,10 @@ export function renderApplication(app: Application, params: URLSearchParams): HT
 
 			<br>
 
+			<section id="dump">
+				<pre>${app?.dump}</pre>
+			</section>
+
 			${app && app.listeners.length > 0 && html`
 				<h3>Listeners</h3>
 				<ul>
@@ -67,6 +70,7 @@ export function renderApplication(app: Application, params: URLSearchParams): HT
 				<div class="fleuron">⬥ ❦ ⬥</div>
 				<a href="https://github.com/guregu/worker-prolog" target="_blank">worker-prolog</a>
 			</footer>
+			${texteditJS}
 		</body>
 	</html>`;
 }

@@ -1,5 +1,6 @@
 import { html, HTML, unsafeHTML } from "@worker-tools/html";
 import { PengineResponse } from "../response";
+import { socketJS, texteditJS } from "./js";
 import { favicon, indexStyle } from "./style";
 
 const EXAMPLE_QUERIES: [string, string][] = [
@@ -15,6 +16,7 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 	const meta = result?.meta ?? result?.answer?.meta ?? result?.data?.meta;
 	const src_text = result?.meta?.src_text ?? result?.answer?.meta?.src_text ?? result?.data?.meta?.src_text;
 	const application = result?.meta?.application ?? result?.answer?.meta?.application ?? result?.data?.meta?.application;
+	const debug = result?.debug ?? result?.answer?.debug ?? result?.data?.debug;
 	const id = result?.id || crypto.randomUUID();
 	if (result?.event == "create" && result?.answer) {
 		result = result.answer;
@@ -97,10 +99,14 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 
 				<br>
 
-				${result?.meta?.app_src && html`
-					<details id="app_src" class="dump">
-						<summary>Application State</summary>
-						<pre>${result?.meta?.app_src}</pre>
+				${debug && debug?.dump && html`
+					<details id="dump" class="dump">
+						<summary>State</summary>
+
+						${Object.entries(debug.dump).map(([k, v]) => html`
+							<h4>${k}</h4>
+							<pre>${v}</pre>
+						`)}
 					</details>`}
 				
 				${result && html`
@@ -117,46 +123,9 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 					<a href="https://github.com/guregu/worker-prolog" target="_blank">worker-prolog</a>
 				</footer>
 
+				${texteditJS}
+				${socketJS}
 				<script>
-
-SRC_TEXT = document.getElementById("src_text");
-// support tabs in editor
-SRC_TEXT.addEventListener("keydown", function(e) {
-	if (e.key == "Tab" && !e.shiftKey) {
-		e.preventDefault()
-		e.target.setRangeText(
-			"\\t",
-			e.target.selectionStart,
-			e.target.selectionStart,
-			"end"
-		);
-	} else if (e.key == "Enter") {
-		const caret = e.target.selectionStart;
-		const lineStart = e.target.value.lastIndexOf("\\n", caret-1) + 1;
-		const line = e.target.value.slice(lineStart, caret);
-		if (line.startsWith("\\t") && !line.trim().endsWith(".")) {
-			for (var ct = 0; ct < line.length && line[ct] == "\\t"; ct++) {}
-			const tab = "\\t".repeat(ct);
-			e.preventDefault();
-			e.target.setRangeText(
-				"\\n" + tab,
-				e.target.selectionStart,
-				e.target.selectionStart,
-				"end"
-			);
-		}
-	}
-	updateSpacer(e.target);
-});
-SRC_TEXT.addEventListener("input", function(e) {
-	updateSpacer(e.target);
-})
-function updateSpacer(textarea) {
-	const spacer = textarea.parentElement.querySelector(".spacer");
-	if (spacer) {
-		spacer.textContent = textarea.value + "\\u200b";
-	}
-}
 
 EXAMPLE_SIGIL = "% ?- ";
 QUERIES_SEEN = [];
@@ -195,11 +164,15 @@ document.addEventListener("DOMContentLoaded", refreshExamples);
 SRC_TEXT.addEventListener("blur", refreshExamples);
 
 const QUERY_SUBMIT = document.getElementById("query-submit");
-function send(event, ask, src_text) {
+function send(event, ask, src_text, replace) {
 	console.log(event, ask);
 	const askElem = document.getElementById("ask")
 	if (ask) {
 		askElem.value = ask;
+	}
+	if (replace) {
+		SRC_TEXT.value = value;
+		updateSpacer(SRC_TEXT);
 	}
 	var query = {
 		ask: ask || askElem.value,
@@ -236,113 +209,8 @@ function setAsk(txt) {
 	return false;
 }
 
-window.Socket = function(url, hello) {
-	this.socket = null;
-	this.url = url;
-	this.msgq = [];
-	this.hello = hello;
-	this.handlers = {};
-	this.reconnector = null;
-	this.reconnectDelay = 1000;
-	this.reconnectN = 0;
-
-	this.onconnect = null;
-	this.onreconnect = null;
-	this.onbeforeunload = null;
-	this.onfail = null;
-
-	this.send = function(msg) {
-		msg = JSON.stringify(msg);
-		if (!this.socket || this.socket.readyState != WebSocket.OPEN) {
-			this.msgq.push(msg);
-		} else {
-			this.socket.send(msg);
-		}
-	}
-
-	this.connect = function(reconnect) {
-		if (this.reconnector) { clearTimeout(this.reconnector); }
-
-		var proto = "ws://";
-		if (window.location.protocol === "https:") {
-				proto = "wss://";
-		}
-		try {
-			this.socket = new WebSocket(proto + this.url);
-		} catch(ex) {
-			console.log(ex);
-			if (this.onfail) {
-				this.onfail();
-			}
-		}
-		this.socket.onopen = function() {
-			console.log("yee haw");
-			if (reconnect && this.onreconnect) {
-				this.onreconnect();
-			}
-			if (this.hello) {
-				this.send(this.hello);
-			}
-			this.msgq.forEach(function(msg) {
-				this.socket.send(msg);
-			}.bind(this));
-			this.msgq = [];
-			this.reconnectDelay = 1000;
-			this.reconnectN = 0;
-
-			if (this.onconnect) {
-				this.onconnect();
-			}
-		}.bind(this);
-
-		this.socket.onclose = function(e) {
-			console.log("closed");
-			this.reconnector = setTimeout(function() {
-				this.reconnectN++;
-				this.connect(true);
-				this.reconnectDelay = this.reconnectDelay * 1.25;
-			}.bind(this), this.reconnectDelay + (Math.random()*1000));
-		}.bind(this);
-
-		this.socket.onmessage = function(e) {
-			var data = e.data.toString();
-			var idx = data.indexOf(':');
-			if (idx == -1) {
-				console.log("msg without channel", data);
-				return;
-			}
-			var chan = data.slice(0, idx);
-			var msg = data.slice(idx + 1);
-			if (this.handlers[chan]) {
-				this.handlers[chan](msg);
-			} else {
-				console.log("unhandled msg", chan, msg);
-			}
-		}.bind(this);
-
-		this.socket.onerror = function(err) {
-			console.log("socket error", err);
-		};
-	}
-
-	this.handle = function(channel, fn) {
-		this.handlers[channel] = fn;
-	}
-
-	this.ready = function() {
-		return this.socket && this.socket.readyState == WebSocket.OPEN;
-	}
-
-	window.addEventListener("beforeunload", function(event) {
-		this.socket.onclose = null;
-		this.socket.close(1000, "bye!");
-		if (this.onbeforeunload) {
-			this.onbeforeunload();
-		}
-	}.bind(this));
-}
-
 const socket = new Socket(location.host + "/ws?id=${id}", {cmd: "greetings"});
+
 socket.handle("result", function(msg) {
 	var box = document.getElementById("results");
 	if (box.querySelector("#welcome")) {
@@ -353,6 +221,7 @@ socket.handle("result", function(msg) {
 	QUERY_SUBMIT.value = "Query";
 	refreshExamples();
 });
+
 socket.handle("src_text", function(txt) {
 	// TODO: nicer
 	const src_txt = document.getElementById("src_text");
@@ -361,11 +230,14 @@ socket.handle("src_text", function(txt) {
 	}
 	refreshExamples();
 });
+
 socket.handle("stdout", function(msg) {
 	var box = document.getElementById("results");
 	box.insertAdjacentHTML("afterbegin", msg);
 });
+
 socket.connect();
+
 				</script>
 			</body>
 		</html>
@@ -377,7 +249,7 @@ export function renderResult(result: PengineResponse, omitOutput = false): HTML 
 	return html`
 	<fieldset class="answer" data-ask="${result.ask}">
 		<legend><span>${eventEmoji(result)} ${new Date().toLocaleTimeString()} ${(query_time && query_time > 0) ? html`<small>${query_time} seconds</small>` : null}</span></legend>
-		<p class="ask"><a href="#src_text" onclick="return setAsk(atob('${btoa(result.ask ?? '')}'));">${result.ask}</a></p>
+		<p class="ask"><a href="#src_text" onclick="return setAsk(decodeURIComponent('${encodeURIComponent(result.ask ?? '')}'));">${result.ask}</a></p>
 		<blockquote class="output">${result?.output}</blockquote>
 		${renderAnswersTable(result)}
 	</fieldset>`;
@@ -403,7 +275,7 @@ function renderWelcome(): HTML {
 		</p>
 		<h3>Example queries</h3>
 		<ul>
-			${EXAMPLE_QUERIES.map(([src, ask]) => html`<li><a href="?ask=${ask}&src_text=${unsafeHTML(encodeURIComponent(src))}" onclick='return send(null, atob("${btoa(ask)}"), ${src ? html`atob("${btoa(src)}")` : html`undefined`});'>${ask}</a></li>`)}
+			${EXAMPLE_QUERIES.map(([src, ask]) => html`<li><a href="?ask=${ask}&src_text=${unsafeHTML(encodeURIComponent(src))}" onclick='return send(null, decodeURIComponent("${encodeURIComponent(ask)}"), ${src ? html`atob("${btoa(src)}")` : html`undefined`}, true);'>${ask}</a></li>`)}
 		</ul>
 		<h3>Documentation</h3>
 		<ul>
@@ -489,7 +361,6 @@ function renderAnswersTable(result?: PengineResponse): HTML {
 	if (!result) {
 		return html``;
 	}
-
 	switch (result.event) {
 	case "error":
 		return html`
@@ -525,7 +396,6 @@ function renderAnswersTable(result?: PengineResponse): HTML {
 
 function renderAnswerTable(projection: string[], x: Record<string, any>): HTML {
 	const entries = Object.entries(x);
-
 	if (entries.length == 0) {
 		return html`<b class="answer true">yes</b>&nbsp;`;
 	}

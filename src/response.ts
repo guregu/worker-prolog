@@ -19,6 +19,9 @@ export interface PengineResponse {
 	operators?: Map<number, Map<string, string[]>>, // priority (number) → op ("fx" "yfx" etc) → names (TODO: unused)
 	output?: string,
 	meta?: PengineMetadata,
+	debug?: {
+		dump?: Record<string, string>,
+	},
 	rights?: {
 		edit: boolean,
 	},
@@ -139,7 +142,7 @@ function makePrologResponse(term: pl.type.Value, sesh?: Prolog): Response {
 }
 
 export function prologResponse(text: string): Response {
-	console.log("respond:", text);
+	// console.log("respond:", text);
 	return new Response(text, {
 		status: 200, headers: {
 			"Content-Type": "application/x-prolog; charset=UTF-8"
@@ -169,6 +172,7 @@ function makeJSONAnswer(answer: PengineResponse | SuccessEvent, sesh?: Prolog): 
 		output: answer.output,
 		meta: answer.meta,
 		ask: answer.ask,
+		debug: answer.debug,
 	};
 }
 

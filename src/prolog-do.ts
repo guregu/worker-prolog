@@ -84,8 +84,8 @@ export class PrologDO {
 		this.state.blockConcurrencyWhile(async () => {
 			this.txid++;
 			const progs = this.dumpLocal(exclude);
-			this.prog.putRecord(`tx${this.txid}`, progs);
-			this.txmeta.put({txid: this.txid});
+			await this.prog.putRecord(`tx${this.txid}`, progs);
+			await this.txmeta.put({txid: this.txid});
 			this.dirty = false;
 		})
 	}
@@ -111,6 +111,17 @@ export class PrologDO {
 				continue;
 			}
 			if (this.links[mod.id]) {
+				continue;
+			}
+			progs[mod.id] = this.dumpModule(mod);
+		}
+		return progs;
+	}
+
+	dumpAll(): Record<string, string> {
+		const progs: Record<string, string> = {};
+		for (const mod of Object.values(this.pl.session.modules) as pl.type.Module[]) {
+			if (mod.is_library) {
 				continue;
 			}
 			progs[mod.id] = this.dumpModule(mod);
@@ -156,14 +167,16 @@ export class PrologDO {
 		return prog;
 	}
 
-	async run(prog: string | pl.type.Point[], chunk?: number, replicated = false): Promise<[Query, [pl.type.Term, pl.type.Substitution][]]> {
+	async run(prog: string | pl.type.Point[], chunk?: number, throws = false): Promise<[Query, [pl.type.Term, pl.type.Substitution][]]> {
 		const query = new Query(this.pl.session, prog);
 		const answers = query.answer();
 		const results: [pl.type.Term, pl.type.Substitution][] = [];
 		for await (const [goal, answer] of answers) {
 			if (answer.indicator == "throw/1") {
 				console.error(this.pl.session.format_answer(answer));
-				throw answer;
+				if (throws) {
+					throw answer;
+				}
 			}
 			results.push([goal, answer]);
 			if (chunk && results.length == chunk) {
@@ -171,12 +184,26 @@ export class PrologDO {
 			}
 		}
 		const tx = query.tx();
-		if (!replicated && tx) {
+		if (tx) {
 			this.dirty = true;
 			await this.transact(tx)
 		}
 		await this.save();
 		return [query, results];
+	}
+
+	async replicate(tx: string, module?: string) {
+		const ops = tx.split(".\n");
+		for (let prog of ops) {
+			if (prog.endsWith(".")) {
+				prog = prog.slice(0, prog.length-1);
+			}
+			// `[Op, user:X] =.. (assertz(user:foo(bar)))`
+			const query = new Query(this.pl.session, `Prog = (${prog}), ( Prog =.. [Op, user:X] -> call(Op, ${module}:X) ; call(Prog) ).`);
+			query.drain();
+		}
+		this.dirty = true;
+		await this.save();
 	}
 
 	async transact(tx: pl.type.Term[]) {
@@ -232,7 +259,7 @@ export class PrologDO {
 	}
 
 	// tx web handler
-	async handleTX(request: Request): Promise<Response> {
+	async handleTx(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const name = url.searchParams.get("rename") ?? undefined;
 		const pengine = request.headers.get("Pengine") ?? undefined;
@@ -273,9 +300,10 @@ export class PrologDO {
 	}
 
 	async linkApp(appID: string): Promise<pl.type.Module | undefined> {
-		// if (this.links[appID]) {
-		// 	return this.pl.session.modules[appID];
-		// }
+		if (this.links[appID] && this.pl.session.modules[appID]) {
+			this.gossip(appID);
+			return this.pl.session.modules[appID];
+		}
 		// TODO: not just app DO
 		const link = this.env.PENGINES_APP_DO.get(this.env.PENGINES_APP_DO.idFromName(appID));
 		this.links[appID] = link;
@@ -305,16 +333,14 @@ export class PrologDO {
 		socket.accept();
 		console.log("[gossip] connected to websocket", socket, appID);
 
-		//socket.send("hello");
 		socket.addEventListener("message", (msg: MessageEvent) => {
-			console.log("upd8888:", msg.data);
 			let promise;
 			if (msg.data === "true.") {
 				promise = this.syncForeignModule(appID)
 			} else {
-				const tx = msg.data.replace("user:", `${appID}:`); 	// TODO: hack lolz
-				console.log("gossip tx:", tx);
-				promise = this.run(tx, undefined, true);
+				const tx = msg.data;
+				// console.log("gossip tx:", tx);
+				promise = this.replicate(tx, appID);
 			}
 			promise.then(() => {
 				this.broadcast(`update:${msg.data}`);
@@ -333,22 +359,18 @@ export class PrologDO {
 		if (!result.ok) {
 			throw makeError("consult_app_error", result.status);
 		}
-		console.log("app prog for", appID, "::", prog);
+		// console.log("app prog for", appID, "::", prog);
 		return await this._consultApp(appID, prog);
 	}
 
 	private async _consultApp(appID: string, prog: string) {
 		this.dirty = true;
-		console.log("konsulting....")
 		await this.pl.consult(prog, {
 			session: this.pl.session,
 			from: "app_" + appID,
 			reconsult: true,
 			url: false,
 			html: false,
-			success: function() {
-				console.log("synced w/ app");
-			}.bind(this),
 			error: function(err: unknown) {
 				console.error("invalid app text:", prog);
 				throw makeError("consult_error", err, functor("application", appID));

@@ -37,12 +37,6 @@ export class ApplicationDO extends PrologDO {
 		if (!this.id) {
 			this.id = url.searchParams.get("application") ?? url.hostname;
 		}
-		if (!this.pl.session.modules.app) {
-			this.pl.session.modules.app = new pl.type.Module("app", {}, "all", {
-				session: this.pl.session,
-				dependencies: ["system", "lists", "js", "random", "format", "charsio"]
-			});
-		}
 
 		if (request.headers.get("Upgrade") == "websocket") {
 			return this.handleWebsocket(this.id, request);
@@ -52,13 +46,9 @@ export class ApplicationDO extends PrologDO {
 		case "/":
 			return this.handleIndex(request);
 		case "/tx":
-			return this.handleTX(request);
+			return this.handleTx(request);
 		case "/set":
 			return this.handleSet(request);
-		case "/exec":
-			return this.handleExec(request);
-		case "/rules":
-			return this.handleRules(request);
 		case "/meta":
 			return this.handleMeta(request);
 		case "/dump.pl":
@@ -161,40 +151,6 @@ export class ApplicationDO extends PrologDO {
 		return new JSONResponse(resp);
 	}
 
-	async handleRules(_request: Request): Promise<Response> {
-		const mods = this.pl.session.modules;
-		return makeResponse(mods);
-	}
-
-	async handleExec(request: Request): Promise<Response> {
-		const prog = await request.text();
-		const pengine = request.headers.get("Pengine") ?? undefined;
-		const query = new Query(this.pl.session, prog);
-		const answers = query.answer();
-		const changes = [];
-		for await (const [goal, answer] of answers) {
-			if (answer.indicator == "throw/1") {
-				console.error(this.pl.session.format_answer(answer));
-				continue;
-			}
-			changes.push(goal);
-		}
-		if (changes.length > 0) {
-			this.dirty = true;
-		}
-		await this.save();
-
-		if (changes.length > 0) {
-			const update = changes
-				.map(x => x.toString({session: this.pl.session, quoted: true, ignore_ops: false}))
-				.join("; ") + ".";
-			this.broadcast(update, pengine);
-		}
-
-		const meta = await this.getMeta();
-		return prologResponse(this.dumpApp(meta));
-	}
-
 	async handleDump(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const mod = url.searchParams.get("module") ?? "user";
@@ -202,8 +158,4 @@ export class ApplicationDO extends PrologDO {
 		const meta = await this.getMeta();
 		return prologResponse(this.dumpModule(this.pl.session.modules[mod], rename));
 	}
-}
-
-export function compileApp(mod: pl.type.Module) {
-
 }

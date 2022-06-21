@@ -202,6 +202,16 @@ export class Query {
 		}
 	}
 
+	public async drain() {
+		const answers = this.answer();
+		for await (const [_, answer] of answers) {
+			if (answer.indicator == "throw/1") {
+				console.error(this.thread.session.format_answer(answer));
+				throw answer;
+			}
+		}
+	}
+
 	public output(): string {
 		this.stream.stream.flush();
 		return this.outputBuf;

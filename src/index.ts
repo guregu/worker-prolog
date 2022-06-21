@@ -5,7 +5,6 @@ import { PengineResponse } from "./response";
 import { parseResponse } from "./unholy";
 import { renderApplication } from "./views/app";
 import { renderIndex, renderResult } from "./views/index";
-import { renderPengine } from "./views/pengine";
 
 export interface Env {
 	PROLOG_DO: DurableObjectNamespace;
