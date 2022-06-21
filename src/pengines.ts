@@ -40,7 +40,6 @@ export interface PengineMetadata {
 }
 
 export class PengineDO extends PrologDO {
-	env: Env;
 	consulted_urls: string[] = [];
 	req?: Partial<PengineRequest>;
 
@@ -52,7 +51,6 @@ export class PengineDO extends PrologDO {
 
 	constructor(state: DurableObjectState, env: Env) {
 		super(state, env);
-		this.env = env;
 		this.points = new Store(this.state.storage, "points", pl.type);
 		this.query = new Store(this.state.storage, "query", pl.type);
 		this.meta = new Store(this.state.storage, "meta", pl.type);
@@ -141,41 +139,41 @@ export class PengineDO extends PrologDO {
 		// synchronize with Pengine application DO
 		if (req.application && req.application != DEFAULT_APPLICATION) {
 			meta.application = req.application;
-			const app = this.env.PENGINES_APP_DO.get(
-				this.env.PENGINES_APP_DO.idFromName(req.application));
+			// const app = this.env.PENGINES_APP_DO.get(
+			// 	this.env.PENGINES_APP_DO.idFromName(req.application));
 			
-			// TODO: websocket stuff
-			{
-				console.log("RDY?", this.appSocket, this.appSocket?.readyState);
-				if (!this.appSocket || this.appSocket.readyState !== 1) {
-					const resp = await app.fetch(`http://${req.application}/${id}`, {
-						headers: {
-							Upgrade: "websocket",
-						},
-					});
+			// // TODO: websocket stuff
+			// {
+			// 	console.log("RDY?", this.appSocket, this.appSocket?.readyState);
+			// 	if (!this.appSocket || this.appSocket.readyState !== 1) {
+			// 		const resp = await app.fetch(`http://${req.application}/${id}`, {
+			// 			headers: {
+			// 				Upgrade: "websocket",
+			// 			},
+			// 		});
 
-					const ws = resp.webSocket;
-					if (!ws) {
-						throw new Error("server didn't accept WebSocket");
-					}
+			// 		const ws = resp.webSocket;
+			// 		if (!ws) {
+			// 			throw new Error("server didn't accept WebSocket");
+			// 		}
 
-					ws.accept();
-					this.appSocket = ws;
-					console.log("connected to websocket", ws, req.application);
+			// 		ws.accept();
+			// 		this.appSocket = ws;
+			// 		console.log("connected to websocket", ws, req.application);
 
-					ws.send("hello");
-					ws.addEventListener("message", (msg: MessageEvent) => {
-						console.log("upd88:", msg.data);
-						const promise = msg.data === "true." ? 
-							this.syncApp(app, req, meta) : 
-							this.run(msg.data);
-						promise.then(() => {
-							this.broadcast(`update:${msg.data}`);
-						});
-					});
-					await this.syncApp(app, req, meta);
-				}
-			}	
+			// 		ws.send("hello");
+			// 		ws.addEventListener("message", (msg: MessageEvent) => {
+			// 			console.log("upd88:", msg.data);
+			// 			const promise = msg.data === "true." ? 
+			// 				this.syncApp(app, req, meta) : 
+			// 				this.run(msg.data);
+			// 			promise.then(() => {
+			// 				this.broadcast(`update:${msg.data}`);
+			// 			});
+			// 		});
+			// 		await this.syncApp(app, req, meta);
+			// 	}
+			// }	
 		}
 
 		if (req.src_url && !meta.src_urls.includes(req.src_url)) {
@@ -191,7 +189,7 @@ export class PengineDO extends PrologDO {
 				const prog = await resp.text();
 
 				console.log("consulted url", url, prog.slice(0, 64));
-				this.pl.session.consult(prog, {
+				await this.pl.consult(prog, {
 					session: this.pl.session,
 					from: url,
 					reconsult: true,
@@ -206,28 +204,26 @@ export class PengineDO extends PrologDO {
 						throw makeError("consult_error", err, functor("src_url", url));
 					}
 				});
+				this.dirty = true;
 			} else {
 				console.log("already loaded:", url);
 			}
 		}
 
 		if (req.src_text) {
-			this.pl.session.consult(req.src_text, {
+			const same = req.src_text == meta.src_text;
+			await this.pl.consult(req.src_text, {
 				session: this.pl.session,
-				// from: "$src_text",
 				reconsult: true,
 				url: false,
 				html: false,
 				success: () => {
 					meta.src_text = req.src_text;
-					console.log("consulted text:", req.src_text);
-					this.broadcast(`src_text:${req.src_text}`);
-				},
-				error: (err: unknown) => {
-					console.error("invalid src_text:", req.src_text);
-					throw makeError("consult_error", err, "src_text");
 				}
 			});
+			if (!same) {
+				this.dirty = true;
+			}
 		}
 
 		if (!req.ask && !req.next) {
@@ -246,17 +242,19 @@ export class PengineDO extends PrologDO {
 		// console.log("Ask:", req, "SESH", this.sesh, "NEXT?", next);
 		this.req = req;
 
-		// const answers = this.sesh.query(req.ask);
-		let query: Query;
-		if (req.ask) {
-			query = new Query(this.pl.session, req.ask);
-		} else {
-			query = new Query(this.pl.session, next);
-		}
-		const answers = query.answer();
+		const chunk = req.chunk ?? this.req?.chunk;
+		const [query, answers] = await this.run(req.ask ?? next, chunk);
+
+		// // const answers = this.sesh.query(req.ask);
+		// let query: Query;
+		// if (req.ask) {
+		// 	query = new Query(this.pl.session, req.ask);
+		// } else {
+		// 	query = new Query(this.pl.session, next);
+		// }
+		// const answers = query.answer();
 		const results = [];
 		const links = [];
-		const chunk = req.chunk ?? this.req?.chunk;
 		let projection: any[] = [];
 		let queryGoal: pl.type.Value | undefined;
 		let rest: pl.type.State[] = [];
@@ -283,47 +281,43 @@ export class PengineDO extends PrologDO {
 			const term = tmpl.apply(answer);
 			results.push(term);
 			links.push(answer.links);
-
-			if (chunk == results.length) {
-				console.log("chunkin'", req.chunk, rest, "SESH", this.pl);
-				break;
-			}
 		}
 		rest = query.thread.points;
 		const output = query.output();
 
-		const tx = query.tx();
-		if (tx) {
-			const appTx = [];
-			for (const op of tx) {
-				console.log("TX OP:", op.toString(), "APP", req.application);
-				if (op.args[0]?.indicator == ":/2" && op.args[0]?.args[0] == "app") {
-					appTx.push(op);
-				}
-			}
-			if (req.application && req.application != DEFAULT_APPLICATION && appTx.length > 0) {
-				const txQuery = tx.map(t => t.toString({session: this.pl.session, quoted: true, ignore_ops: true})).join("; ") + ".";
-				console.log("TX query:", txQuery);
-				const app = this.env.PENGINES_APP_DO.get(
-					this.env.PENGINES_APP_DO.idFromName(req.application));
-				const update = new Request(`http://${req.application}/exec`, {
-					method: "POST",
-					body: txQuery,
-					headers: {
-						"Pengine": id,
-					},
-				});
-				const result = await app.fetch(update);
-				if (!result.ok) {
-					throw("TX FAILED");
-				}
-				meta.app_src = await result.text();	
-				this.broadcast(`update:${txQuery}`);
-			}
-		}
-		if (req.application && !tx) {
-			meta.app_src = dumpModule(this.pl.session.modules.app);
-		}
+		// const tx = query.tx();
+		// if (tx) {
+		// 	const appTx = [];
+		// 	for (const op of tx) {
+		// 		console.log("TX OP:", op.toString(), "APP", req.application);
+		// 		if (op.args[0]?.indicator == ":/2" && op.args[0]?.args[0] == "app") {
+		// 			appTx.push(op);
+		// 		}
+		// 	}
+		// 	if (req.application && req.application != DEFAULT_APPLICATION && appTx.length > 0) {
+		// 		const txQuery = tx.map(t => t.toString({session: this.pl.session, quoted: true, ignore_ops: true})).join(".\n");
+		// 		console.log("TX query:", txQuery);
+		// 		const app = this.env.PENGINES_APP_DO.get(
+		// 			this.env.PENGINES_APP_DO.idFromName(req.application));
+		// 		const update = new Request(`http://${req.application}/exec`, {
+		// 			method: "POST",
+		// 			body: txQuery,
+		// 			headers: {
+		// 				"Pengine": id,
+		// 			},
+		// 		});
+		// 		const result = await app.fetch(update);
+		// 		if (!result.ok) {
+		// 			throw("TX FAILED");
+		// 		}
+		// 		meta.app_src = await result.text();	
+		// 		this.broadcast(`update:${txQuery}`);
+		// 	}
+		// }
+		// if (req.application) {
+		// 	meta.app_src = dumpModule(this.pl.session.modules.app);
+		// }
+		meta.app_src = Object.values(this.dumpLocal()).join("\n%%%--%%%\n");
 
 		if (persist) {
 			this.meta.put(meta);
@@ -467,8 +461,9 @@ export class PengineDO extends PrologDO {
 
 			try {
 				const result = await this.exec(id, req, Date.now(), true);
-				const resp = await formatResponse("json", result, this.pl.session).json();
-				const html = await (new HTMLResponse(renderResult(resp as PengineResponse))).text();
+				const resp = await formatResponse("json", result, this.pl).json();
+				const html = await (new HTMLResponse(renderResult(resp as PengineResponse, true))).text();
+				console.log("broadcastin':", resp, "SESH", this.pl);
 				this.broadcast("result:" + html);
 			} catch(err) {
 				if (err instanceof Error) {
@@ -482,7 +477,7 @@ export class PengineDO extends PrologDO {
 					"id": id,
 				};
 				console.log("ERR RESP:", ball, x, err);
-				const html = await (new HTMLResponse(renderResult(x as PengineResponse))).text();
+				const html = await (new HTMLResponse(renderResult(x as PengineResponse, true))).text();
 				this.broadcast("result:" + html);
 			}
 		}
@@ -498,7 +493,7 @@ export class PengineDO extends PrologDO {
 		}
 		console.log("app prog for", req.application, "::", prog);
 		meta.app_src = prog;
-		this.pl.session.consult(prog, {
+		this.pl.consult(prog, {
 			session: this.pl.session,
 			from: "$pengines-app",
 			reconsult: true,

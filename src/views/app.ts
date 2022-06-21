@@ -37,11 +37,13 @@ export function renderApplication(app: Application, params: URLSearchParams): HT
 			<section id="query">
 				<form method="POST" id="app-form">
 					<input type="hidden" name="id" value="${app.id}">
+					<!--
 					<label for="ask">?- </label>
 					<input type="text" name="ask" id="ask"
 						placeholder="member(X, [1, 2, 3])."
 						list=examples>
-					<input type="submit" value="Query">
+					-->
+					<input type="submit" value="Save">
 				</form>
 				<datalist id="examples"></datalist>
 			</section>

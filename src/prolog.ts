@@ -16,15 +16,20 @@ plFmt(pl);
 plChrs(pl);
 betterJSON(pl);
 transactions(pl);
+linkedModules(pl);
 fetchModule(pl);
 
 // Heavily inspired by yarn/berry
 
 export class Prolog {
 	public session: pl.type.Session;
+	public owner: unknown;
+	private deferred: Promise<void>[] = [];
 
-	public constructor(source?: string) {
+	public constructor(source?: string, owner?: unknown) {
+		this.owner = owner;
 		this.session = pl.create();
+		this.session.ctrl = this;
 		this.session.consult(`
 			:- use_module(library(lists)).
 			:- use_module(library(js)).
@@ -32,8 +37,42 @@ export class Prolog {
 			:- use_module(library(charsio)).
 		`);
 		if (source) {
-			this.session.consult(source);
+			this.consult(source);
+			// this.session.consult(source);
 		}
+	}
+
+	public async consult(src: string, options = {}) {
+		const p = new Promise<void>((resolve, reject) => {
+			if (typeof options.success == "function") {
+				const fn = options.success;
+				options.success = () => {
+					resolve();
+					fn.call(this, arguments);
+				}
+			} else {
+				options.success = () => {
+					resolve();
+				};
+			}
+
+			if (typeof options.error == "function") {
+				const fn = options.error;
+				options.error = function(err: unknown) {
+					reject(makeError("consult_error", err));
+					fn.call(this, arguments);
+				}
+			} else {
+				options.error = (err: unknown) => {
+					reject(makeError("consult_error", err));
+					console.error("invalid src text:", src);
+				}
+			}
+
+			this.session.consult(src, options);
+		});
+		await p;
+		await this.await();
 	}
 
 	private next() {
@@ -44,21 +83,59 @@ export class Prolog {
 		});
 	}
 
-	public async* query(query?: string) {
+	public async* query(query: string) {
 		const iter = new Query(this.session, query).answer();
-
-		// if (query) {
-		// 	thread.query(query, {
-		// 		error: function () { console.log("ERROR!!!", arguments); },
-		// 		html: false,
-		// 	});
-		// }
-
 		for await (const [goal, answer] of iter) {
 			yield [goal, answer];
 		}
 	}
 
+	public defer(fn: Promise<void>) {
+		console.log("deferring:", fn);
+		this.deferred.push(fn);
+	}
+
+	public async await() {
+		console.log("awaiting:", this.deferred);
+		const fns = this.deferred;
+		this.deferred = [];
+		await Promise.all(fns);
+	}
+}
+
+export class Stream {
+	private buf: string = "";
+	private onput?: (text: string) => boolean;
+	private onflush?: () => boolean;
+
+	public constructor(onput?: (text: string) => boolean, onflush?: () => boolean) {
+		this.onput = onput;
+		this.onflush = onflush;
+	}
+
+	public put(text: string) {
+		if (this.onput) {
+			return this.onput(text);
+		}
+		this.buf += text;
+		return true;
+	}
+
+	public flush() {
+		if (this.onflush) {
+			return this.onflush();
+		}
+		return true;
+	}
+
+	public buffer() {
+		return this.buf;
+	}
+}
+
+export function newStream(alias: string, onput?: (text: string) => boolean, onflush?: () => boolean): pl.type.Stream {
+	const stream = new Stream(onput, onflush);
+	return new pl.type.Stream(stream, "append", alias, "text", false, "reset");
 }
 
 export class Query {
@@ -67,19 +144,22 @@ export class Query {
 	
 	private consultErr: pl.type.Term;
 	private outputBuf = "";
+	private stream;
 
 	public constructor(sesh: pl.type.Session, ask: string | pl.type.Point[]) {
 		this.thread = new pl.type.Thread(sesh);
 
-		this.thread.set_current_output(new pl.type.Stream({
+		this.thread.set_current_output();
+		this.stream = new pl.type.Stream({
 			put: (text: string) => {
 				this.outputBuf += text;
-				return true;
+				return sesh.streams["stdout"]?.stream.put(text) ?? true;
 			},
 			flush: () => {
-				return true;
+				return sesh.streams["stdout"]?.stream.flush() ?? true;
 			},
-		}, "append", "worker", "text", false, "reset"));
+		}, "append", "user", "text", false, "reset");
+		this.thread.set_current_output(this.stream);
 
 		if (typeof ask == "string") {
 			this.ask = ask;
@@ -117,11 +197,13 @@ export class Query {
 				pt = pt.parent;
 			}
 			const goal = pt.goal;
+			// console.log("answer:", goal.toString({session: this.thread.session, ignore_ops: false, quoted: true}));
 			yield [goal, answer];
 		}
 	}
 
 	public output(): string {
+		this.stream.stream.flush();
 		return this.outputBuf;
 	}
 
@@ -234,7 +316,6 @@ function transactions(pl) {
 	function replace(pi) {
 		const pred = pl.builtin.rules[pi];
 		pl.builtin.rules[pi] = function(thread: pl.type.Thread, point: pl.type.Point, atom: pl.type.Term) {
-			
 			if (!thread.tx) {
 				thread.tx = [];
 			}
@@ -244,6 +325,23 @@ function transactions(pl) {
 	}
 	for (const pi of ["asserta/1", "assertz/1", "retract/1", /*"retractall/1",*/ "abolish/1"]) {
 		replace(pi);
+	}
+}
+
+function linkedModules(pl: pl) {
+	const useMod = pl.directive["use_module/1"];
+	pl.directive["use_module/1"] = function(thread: pl.type.Thread, term: pl.type.Term, options?: {}) {
+		// console.log("hello~", term.toString());
+		const id = term.args[0];
+		if (pl.type.is_term(id) && pl.type.is_atom(id.args[0])) {
+			if (id.indicator === "application/1") {
+				const name = id.args[0].id;
+				console.log("linking app...", id.toString());
+				thread.session.ctrl.defer(thread.session.ctrl.owner.linkApp(name));
+				return true;
+			}
+		}
+		useMod.apply(this, arguments);
 	}
 }
 

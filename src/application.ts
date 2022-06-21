@@ -9,7 +9,6 @@ import { prologResponse } from "./response";
 export interface Application {
 	id: string,
 	meta: PengineMetadata,
-	modules: Record<string, Record<string, pl.type.Rule[]>>;
 	listeners: string[];
 	dump?: string;
 }
@@ -21,13 +20,11 @@ interface WebSocket {
 }
 
 export class ApplicationDO extends PrologDO {
-	env: any;
 	id: string | undefined;
 	meta: Store<PengineMetadata>;
-
+	
 	constructor(state: DurableObjectState, env: never) {
 		super(state, env);
-		this.env = env;
 		this.meta = new Store(this.state.storage, "meta", pl.type);
 		this.meta.get().then((meta?: PengineMetadata) => {
 			this.id = meta?.application;
@@ -40,7 +37,12 @@ export class ApplicationDO extends PrologDO {
 		if (!this.id) {
 			this.id = url.searchParams.get("application") ?? url.hostname;
 		}
-		this.debugdump();
+		if (!this.pl.session.modules.app) {
+			this.pl.session.modules.app = new pl.type.Module("app", {}, "all", {
+				session: this.pl.session,
+				dependencies: ["system", "lists", "js", "random", "format", "charsio"]
+			});
+		}
 
 		if (request.headers.get("Upgrade") == "websocket") {
 			return this.handleWebsocket(this.id, request);
@@ -49,6 +51,8 @@ export class ApplicationDO extends PrologDO {
 		switch (url.pathname) {
 		case "/":
 			return this.handleIndex(request);
+		case "/tx":
+			return this.handleTX(request);
 		case "/set":
 			return this.handleSet(request);
 		case "/exec":
@@ -68,14 +72,8 @@ export class ApplicationDO extends PrologDO {
 	async handleSet(request: Request): Promise<Response> {
 		const req = await request.json() as PengineMetadata;
 		req.application = this.id;
+		this.dirty = true;
 		await this.meta.put(req);
-
-		if (!this.pl.session.modules.app) {
-			this.pl.session.modules.app = new pl.type.Module("app", {}, "all", {
-				session: this.pl.session,
-				dependencies: ["system", "lists", "js", "random", "format", "charsio"]
-			});
-		}
 
 		for (const url of req.src_urls) {
 			const resp = await fetch(new Request(url));
@@ -85,9 +83,9 @@ export class ApplicationDO extends PrologDO {
 			const prog = await resp.text();
 
 			console.log("consulted url", url, prog.slice(0, 64));
-			this.pl.session.consult(prog, {
+			await this.pl.consult(prog, {
 				session: this.pl.session,
-				context_module: "app",
+				// context_module: "app",
 				reconsult: true,
 				url: false,
 				html: false,
@@ -102,9 +100,10 @@ export class ApplicationDO extends PrologDO {
 		}
 
 		if (req.src_text) {
-			this.pl.session.consult(req.src_text, {
+			await this.pl.consult(req.src_text, {
 				session: this.pl.session,
-				context_module: "app",
+				context_module: "user",
+				// context_module: "app",
 				reconsult: true,
 				url: false,
 				html: false,
@@ -121,7 +120,7 @@ export class ApplicationDO extends PrologDO {
 			});
 		}
 
-
+		await this.save();
 
 		this.broadcast("true.");
 		return makeResponse(await this.info());
@@ -140,30 +139,16 @@ export class ApplicationDO extends PrologDO {
 		return {
 			id: this.id!,
 			meta: meta,
-			modules: this.modules(),
 			listeners: Array.from(this.sockets.keys()),
-			dump: this.dumpApp(meta)
+			dump: this.dumpApp(meta),
 		};
 	}
 
 	dumpApp(meta: PengineMetadata): string {
 		let out = `% app = ${this.id}, id = ${this.state.id.toString()}\n`;
 		// out += meta.src_text ? meta.src_text + "\n" : "";
-		out += this.dumpModule(this.pl.session.modules.app);
+		out += this.dumpModule(this.pl.session.modules.user, "app");
 		return out;
-	}
-
-	modules() {
-		const mods: Record<string, Partial<pl.type.Module>> = {};
-		for (const [name, mod] of Object.entries<pl.type.Module>(this.pl.session.modules)) {
-			if (mod.is_library) {
-				continue;
-			}
-			mods[name] = {
-				rules: mod.rules,
-			};
-		}
-		return mods;
 	}
 
 	async handleIndex(_request: Request): Promise<Response> {
@@ -194,6 +179,9 @@ export class ApplicationDO extends PrologDO {
 			}
 			changes.push(goal);
 		}
+		if (changes.length > 0) {
+			this.dirty = true;
+		}
 		await this.save();
 
 		if (changes.length > 0) {
@@ -207,9 +195,12 @@ export class ApplicationDO extends PrologDO {
 		return prologResponse(this.dumpApp(meta));
 	}
 
-	async handleDump(_request: Request): Promise<Response> {
+	async handleDump(request: Request): Promise<Response> {
+		const url = new URL(request.url);
+		const mod = url.searchParams.get("module") ?? "user";
+		const rename = url.searchParams.get("rename") ?? "app";
 		const meta = await this.getMeta();
-		return prologResponse(this.dumpApp(meta));
+		return prologResponse(this.dumpModule(this.pl.session.modules[mod], rename));
 	}
 }
 

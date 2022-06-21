@@ -1,4 +1,4 @@
-const CURRENT_VERSION = 9;
+const CURRENT_VERSION = 11;
 const PROTO_KEY = "$$proto";
 
 export class Store<T> {
@@ -114,13 +114,19 @@ export class Store<T> {
 		// 	return {[key]: str};
 		// }
 
+
+		let testCheck = "";
+
 		const obj: Record<string, string> = {};
-		for (var i = 0; i*size < str.length; i++) {
-			const pos = i*size;
-			const chunk = str.slice(pos, pos+size+1);
+		let i = 0;
+		for (let pos = 0; pos < str.length; pos += size) {
+			const chunk = str.slice(pos, pos+size);
 			obj[`${key}#${i}`] = chunk;
+			i++;
 		}
+
 		obj[`${key}#${i}`] = EOF;
+		console.table(obj);
 		return obj;
 	}
 

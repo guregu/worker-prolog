@@ -361,6 +361,10 @@ socket.handle("src_text", function(txt) {
 	}
 	refreshExamples();
 });
+socket.handle("stdout", function(msg) {
+	var box = document.getElementById("results");
+	box.insertAdjacentHTML("afterbegin", msg);
+});
 socket.connect();
 				</script>
 			</body>
@@ -368,13 +372,22 @@ socket.connect();
 	`;
 }
 
-export function renderResult(result: PengineResponse): HTML {
+export function renderResult(result: PengineResponse, omitOutput = false): HTML {
+	const query_time = result?.time ?? result?.answer?.time ?? result?.data?.time;
 	return html`
 	<fieldset class="answer" data-ask="${result.ask}">
-		<legend><span>${eventEmoji(result)} ${new Date().toLocaleTimeString()}</span></legend>
+		<legend><span>${eventEmoji(result)} ${new Date().toLocaleTimeString()} ${(query_time && query_time > 0) ? html`<small>${query_time} seconds</small>` : null}</span></legend>
 		<p class="ask"><a href="#src_text" onclick="return setAsk(atob('${btoa(result.ask ?? '')}'));">${result.ask}</a></p>
 		<blockquote class="output">${result?.output}</blockquote>
 		${renderAnswersTable(result)}
+	</fieldset>`;
+}
+
+export function renderOutput(text: string): HTML {
+	return html`
+	<fieldset class="answer">
+		<legend><span>📢 ${new Date().toLocaleTimeString()}</span></legend>
+		<blockquote class="output">${text}</blockquote>
 	</fieldset>`;
 }
 
