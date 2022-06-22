@@ -1,7 +1,7 @@
 import { html, HTML } from "@worker-tools/html";
 import { favicon, indexStyle } from "./style";
 import { Application } from "../application";
-import { texteditJS } from "./js";
+import { texteditJS } from "./scripts";
 
 // TODO: work in progress for rendering "app data" for long-running Pengines
 export function renderApplication(app: Application, params: URLSearchParams): HTML {
@@ -17,7 +17,7 @@ export function renderApplication(app: Application, params: URLSearchParams): HT
 		<body>
 			<header>
 				<h1><a href="/">𝖕𝖗𝖔𝖑𝖔𝖌.𝖗𝖚𝖓</a></h1>
-				<h2>Application: ${meta?.application}</h2>
+				<h2>Application: ${meta?.application} <small>(#${app.txid})</small></h2>
 			</header>
 
 			<section id="meta">

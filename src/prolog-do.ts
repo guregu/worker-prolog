@@ -1,29 +1,35 @@
 import { HTMLResponse } from "@worker-tools/html";
 import pl from "tau-prolog";
 import { Env } from ".";
-import { functor, makeError, makeList, newStream, Prolog, Query } from "./prolog";
+import { functor, makeError, newStream, Prolog, Query } from "./prolog";
 import { prologResponse } from "./response";
 import { Store } from "./unholy";
-import { renderOutput } from "./views";
+import { renderOutput } from "./views/result";
+
+const TX_CHUNK_SIZE = 0;
 
 export interface TXMeta {
+	id: string;
 	txid: number;
+	time: number;
 }
 
 export class PrologDO {
 	state: DurableObjectState;
 	env: Env;
+	id!: string;
 
-	// in-memory
+	// in-memory:
 	// prolog interpreter
 	pl!: Prolog;
-	dirty = false;
 	// transaction ID (counter)
 	txid: number = 0;
+	lastmod: number = 0;
+	dirty = false;
 	// packages linked to other DO's state
 	links: Record<string, DurableObjectStub> = {}; // module → ApplicationDO stub
 
-	// persistence
+	// persistence:
 	// prolog-format dump of all predicates (record: module → program)
 	prog: Store<string>;
 	// tx state
@@ -39,17 +45,31 @@ export class PrologDO {
 		this.txmeta = new Store(this.state.storage, "tx", {});
 		this.state.blockConcurrencyWhile(async () => {
 			const tx = await this.txmeta.get();
+			this.id = tx ? tx.id : "";
 			this.txid = tx ? tx.txid : 0;
+			this.lastmod = tx?.time ? tx.time : 0;
 			this.pl = await this.load();
 		});	  
+	}
+
+	setID(id: string) {
+		switch (this.id) {
+		case id:
+			return;
+		case undefined:
+		case "":
+			this.id = id;
+			return;
+		}
+		throw new Error(`mismatched IDs. this = ${this.id}, new = ${id}`);
 	}
 
 	async load(): Promise<Prolog> {
 		const prolog = new Prolog(undefined, this);
 
 		const prog = await this.prog.record(); // Record<module, program>
-		for (const [modID, text] of Object.entries(prog)) {
-			console.log("[LOAD]", modID, "text: ===\n", text);
+		for (const [_modID, text] of Object.entries(prog)) {
+			// console.log("[LOAD]", modID, "text: ===\n", text);
 			prolog.session.consult(text, {
 				session: prolog.session,
 				reconsult: true,
@@ -64,13 +84,12 @@ export class PrologDO {
 				this.broadcast("stdout:" + html);
 			});
 		};
-		prolog.session.streams["stdout"] = newStream("stdout", undefined, function() {
-			notify(this.buf);
-			this.buf = "";
-			return true;
+		prolog.session.streams["stdout"] = newStream("stdout", undefined, (buf: string) => {
+			notify(buf);
+			return true; // clear buffer
 		});
 		prolog.session.standard_output = prolog.session.streams["stdout"];
-		prolog.session.user_output = prolog.session.streams["stdout"];
+		prolog.session.set_current_output(prolog.session.streams["stdout"]);
 
 		return prolog;
 	}
@@ -83,9 +102,14 @@ export class PrologDO {
 
 		this.state.blockConcurrencyWhile(async () => {
 			this.txid++;
+			this.lastmod = Date.now();
 			const progs = this.dumpLocal(exclude);
 			await this.prog.putRecord(`tx${this.txid}`, progs);
-			await this.txmeta.put({txid: this.txid});
+			await this.txmeta.put({
+				id: this.id,
+				txid: this.txid,
+				time: this.lastmod,
+			});
 			this.dirty = false;
 		})
 	}
@@ -167,18 +191,20 @@ export class PrologDO {
 		return prog;
 	}
 
-	async run(prog: string | pl.type.Point[], chunk?: number, throws = false): Promise<[Query, [pl.type.Term, pl.type.Substitution][]]> {
+	async run(prog: string | pl.type.State[], chunk?: number, throws = false): Promise<[Query, [pl.type.Term<number, string>, pl.type.Substitution][]]> {
 		const query = new Query(this.pl.session, prog);
 		const answers = query.answer();
-		const results: [pl.type.Term, pl.type.Substitution][] = [];
+		const results: [pl.type.Term<number, string>, pl.type.Substitution][] = [];
 		for await (const [goal, answer] of answers) {
-			if (answer.indicator == "throw/1") {
+			if (pl.type.is_term(answer)) {
 				console.error(this.pl.session.format_answer(answer));
 				if (throws) {
 					throw answer;
 				}
+				continue;
 			}
-			results.push([goal, answer]);
+			
+			results.push([goal, answer as pl.type.Substitution]);
 			if (chunk && results.length == chunk) {
 				break;
 			}
@@ -206,14 +232,19 @@ export class PrologDO {
 		await this.save();
 	}
 
-	async transact(tx: pl.type.Term[]) {
-		const modTX: Record<string, pl.type.Term[]> = {};
+	async transact(tx: pl.type.Term<number, string>[]) {
+		const modTX: Record<string, pl.type.Term<number, string>[]> = {};
 		for (let op of tx) {
 			let modID = "user";
-			if (op.args[0]?.indicator === ":/2") {
-				modID = op.args[0].args[0].id;
-				op.args[0] = op.args[0].args[1];
-				console.log("MID OP", modID, op);
+			if (pl.type.is_term(op.args[0])) {
+				if (op.args[0].indicator === ":/2") {
+					const mod = (op.args[0] as pl.type.Term<2, ":">).args[0];
+					if (pl.type.is_atom(mod)) {
+						modID = mod.id;
+						// transform: foo:bar(baz) → bar(baz).
+						op.args[0] = op.args[0].args[1];
+					}
+				}
 			}
 			if (modTX[modID]) {
 				modTX[modID].push(op);
@@ -231,7 +262,7 @@ export class PrologDO {
 
 			// TODO: same DO?
 			const txQuery = tx.map(t => t.toString({session: this.pl.session, quoted: true, ignore_ops: true})).join(".\n") + ".";
-			console.log(`📧 -> ${mod}: ${txQuery}`);
+			// console.log(`📧 -> ${mod}: ${txQuery}`);
 			const update = new Request(`http://${mod}/tx?rename=${mod}`, {
 				method: "POST",
 				body: txQuery,
@@ -267,7 +298,7 @@ export class PrologDO {
 		const prog = await request.text();
 		const tx = prog.split("\n");
 
-		let changes: pl.type.Term[] = [];
+		let changes: pl.type.Term<number, string>[] = [];
 		const flush = () => {
 			if (changes.length == 0) {
 				return;
@@ -285,18 +316,24 @@ export class PrologDO {
 			const query = new Query(this.pl.session, op);
 			const answers = query.answer();
 			for await (const [goal, answer] of answers) {
-				if (answer.indicator == "throw/1") {
+				if (pl.type.is_error(answer)) {
 					console.error(this.pl.session.format_answer(answer));
 					continue;
 				}
 				changes.push(goal);
+				if (changes.length === TX_CHUNK_SIZE) {
+					flush();
+				}
 			}
 		}
+		this.dirty = true;
 		await this.save();
 		flush();
 
+		return new Response(null, {status: 206});
+
 		// TODO: other/all modules?
-		return prologResponse(this.dumpModule(this.pl.session.modules.user, name));
+		// return prologResponse(this.dumpModule(this.pl.session.modules.user, name));
 	}
 
 	async linkApp(appID: string): Promise<pl.type.Module | undefined> {
@@ -445,3 +482,18 @@ export function dumpModule(mod: pl.type.Module): string {
 	}
 	return prog;
 }
+
+declare global {
+	interface WebSocket {
+		accept(): void;
+	}
+	interface Response {
+		webSocket?: WebSocket;
+	}
+}
+// interface WebSocket {
+// 	send(msg: string): void;
+// 	accept(): void;
+// 	addEventListener(a: string, f: (msg: MessageEvent) => void): void;
+// 	readonly readyState: number;
+// }

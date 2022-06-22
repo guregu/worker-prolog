@@ -1,10 +1,11 @@
 import { HTMLResponse } from "@worker-tools/html";
 
-import { DEFAULT_APPLICATION, PengineMetadata, PengineRequest } from "./pengines";
+import { DEFAULT_APPLICATION, PengineRequest } from "./pengines";
 import { PengineResponse } from "./response";
 import { parseResponse } from "./unholy";
 import { renderApplication } from "./views/app";
-import { renderIndex, renderResult } from "./views/index";
+import { renderIndex } from "./views/index";
+import { renderResult } from "./views/result";
 
 export interface Env {
 	PROLOG_DO: DurableObjectNamespace;
@@ -55,16 +56,6 @@ export default {
 			return stub.fetch(fwd);
 		}
 
-		if (url.pathname.startsWith("/sesh/")) {
-			idParam = url.pathname.slice("/sesh/".length);
-			const bangs = idParam.split("!");
-			if (bangs.length == 2) {
-				[idParam, app] = bangs;
-			}
-			const [id, stub] = pengineStub(env, app, idParam)
-			return handleWeb(env, request, app, id, stub, false);
-		}
-
 		if (url.pathname.startsWith("/app/")) {
 			return handleApp(env, request);
 		}
@@ -101,7 +92,6 @@ async function handleApp(env: Env, request: Request) {
 		resp = await appDO.fetch(new Request(href));
 	}
 	const result = await parseResponse(resp);
-	console.log("RESULT", result);
 	const content = renderApplication(result, url.searchParams);
 	return new HTMLResponse(content);
 }
@@ -114,7 +104,15 @@ async function handleWeb(env: Env, request: Request, app: string, id: string, st
 	const src_url = form.get("src_url") ?? undefined;
 	const src_text = form.get("src_text") ?? undefined;
 	let result: PengineResponse | undefined;
-	console.log("asking", id, ask, src_text, src_url);
+
+	if (!validID(id)) {
+		return new Response("invalid ID", {
+			status: 400,
+		});
+	}
+
+	// console.log("asking", id, ask, src_text, src_url);
+	
 	const req: Partial<PengineRequest> = {
 		id: id,
 		ask: ask,
@@ -144,6 +142,10 @@ async function handleWeb(env: Env, request: Request, app: string, id: string, st
 function pengineStub(env: Env, app = DEFAULT_APPLICATION, id = crypto.randomUUID()): [string, DurableObjectStub] {
 	const pid = env.PROLOG_DO.idFromName(id);
 	return [id, env.PROLOG_DO.get(pid)];
+}
+
+function validID(id: string) {
+	return /^[\w\-]+$/.test(id);
 }
 
 const corsHeaders = {

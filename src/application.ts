@@ -1,6 +1,6 @@
 import pl from "tau-prolog";
 import { JSONResponse } from "@worker-tools/json-fetch";
-import { functor, makeError, Query } from "./prolog";
+import { functor, makeError } from "./prolog";
 import { PrologDO } from "./prolog-do";
 import { PengineMetadata } from "./pengines";
 import { makeResponse, Store } from "./unholy";
@@ -9,34 +9,27 @@ import { prologResponse } from "./response";
 export interface Application {
 	id: string,
 	meta: PengineMetadata,
+	txid: number,
 	listeners: string[];
 	dump?: string;
 }
 
-interface WebSocket {
-	send(msg: string): void;
-	accept(): void;
-	addEventListener(a: string, f: (msg: MessageEvent) => void): void;
-}
-
 export class ApplicationDO extends PrologDO {
-	id: string | undefined;
 	meta: Store<PengineMetadata>;
 	
 	constructor(state: DurableObjectState, env: never) {
 		super(state, env);
 		this.meta = new Store(this.state.storage, "meta", pl.type);
 		this.meta.get().then((meta?: PengineMetadata) => {
-			this.id = meta?.application;
+			if (meta?.application) {
+				this.setID(meta?.application);
+			}
 		});
 	}
 
 	async fetch(request: Request) {
 		const url = new URL(request.url);
-
-		if (!this.id) {
-			this.id = url.searchParams.get("application") ?? url.hostname;
-		}
+		this.setID(url.searchParams.get("application") ?? url.hostname)
 
 		if (request.headers.get("Upgrade") == "websocket") {
 			return this.handleWebsocket(this.id, request);
@@ -63,7 +56,6 @@ export class ApplicationDO extends PrologDO {
 		const req = await request.json() as PengineMetadata;
 		req.application = this.id;
 		this.dirty = true;
-		await this.meta.put(req);
 
 		for (const url of req.src_urls) {
 			const resp = await fetch(new Request(url));
@@ -98,7 +90,6 @@ export class ApplicationDO extends PrologDO {
 				url: false,
 				html: false,
 				success: () => {
-					console.log("consulted text:", req.src_text);
 					for (const warning of this.pl.session.get_warnings()) {
 						console.error(warning);
 					}
@@ -110,7 +101,10 @@ export class ApplicationDO extends PrologDO {
 			});
 		}
 
-		await this.save();
+		await Promise.all([
+			this.meta.put(req),
+			this.save(),
+		]);
 
 		this.broadcast("true.");
 		return makeResponse(await this.info());
@@ -129,8 +123,9 @@ export class ApplicationDO extends PrologDO {
 		return {
 			id: this.id!,
 			meta: meta,
+			txid: this.txid,
 			listeners: Array.from(this.sockets.keys()),
-			dump: this.dumpApp(meta),
+			// dump: this.dumpApp(meta),
 		};
 	}
 
@@ -155,7 +150,6 @@ export class ApplicationDO extends PrologDO {
 		const url = new URL(request.url);
 		const mod = url.searchParams.get("module") ?? "user";
 		const rename = url.searchParams.get("rename") ?? "app";
-		const meta = await this.getMeta();
 		return prologResponse(this.dumpModule(this.pl.session.modules[mod], rename));
 	}
 }

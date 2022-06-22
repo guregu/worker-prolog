@@ -1,17 +1,21 @@
 import pl from "tau-prolog";
 import { JSONResponse } from "@worker-tools/json-fetch";
 
-import { Prolog, makeError, functor, toProlog, Query } from "./prolog";
-import { dumpModule, PrologDO } from "./prolog-do";
+import { Prolog, makeError, functor, toProlog } from "./prolog";
+import { PrologDO } from "./prolog-do";
 import { Store } from "./unholy";
-import { ErrorEvent, formatResponse, PengineResponse, prologResponse, serializeTerm } from "./response";
+import { PengineResponse, formatResponse, prologResponse, serializeTerm } from "./response";
 import { Env } from ".";
-import { renderResult } from "./views";
-import { BufferedHTMLResponse, HTMLResponse } from "@worker-tools/html";
+import { renderResult } from "./views/result";
+import { HTMLResponse } from "@worker-tools/html";
 
 export const DEFAULT_APPLICATION = "pengine_sandbox";
 export const ARBITRARY_HIGH_NUMBER = 100;
-const DEBUG_DUMP = false;
+const DEBUG_DUMP = true;
+
+export type Format = "json" | "prolog" | "json_atom" | "raw";
+export type Command = "create" | "destroy" | "ask" | "next" | "stop" | "ping";
+export type Event = "create" | "destroy" | "success" | "failure" | "error" | "stop" | "ping";
 
 export interface PengineRequest {
 	id: string,
@@ -21,12 +25,34 @@ export interface PengineRequest {
 	src_text: string,
 	src_url: string,
 	chunk: number,
-	format: "json" | "prolog",
+	format: Format,
 	create: boolean,
 	destroy: boolean,
 	stop: boolean,
 	next: boolean,
-	cmd: "create" | "destroy" | "ask" | "next" | "stop";
+	cmd: Command;
+}
+
+export interface PengineReply {
+	event: Event,
+	id: string,
+	lifecycle?: "create" | "destroy" | "full",
+	output?: string,
+
+	ask?: string,
+	results?: pl.type.Value[],
+	more?: boolean,
+	projection?: pl.type.Term<number, string>[], // atoms
+	time?: number, // time taken
+	
+	error?: pl.type.Term<number, string>,
+	links?: pl.type.Substitution[],
+	
+	meta?: PengineMetadata,
+	debug?: {
+		dump?: Record<string, string>,
+	},
+	slave_limit?: number,
 }
 
 export interface PengineMetadata {
@@ -60,18 +86,20 @@ export class PengineDO extends PrologDO {
 
 	async fetch(request: Request) {
 		const url = new URL(request.url);
-		console.log("request:", url.pathname, url.searchParams.get("id"));
+
+		const id = url.searchParams.get("id") ?? url.host;
+		this.setID(id);
+
+		console.log("request:", url.pathname, id);
 
 		if (request.headers.get("Upgrade") == "websocket") {
-			return this.handleWebsocket(url.searchParams.get("id"), request, crypto.randomUUID());
+			return this.handleWebsocket(id, request, crypto.randomUUID());
 		}
 
 		switch (url.pathname) {
+		case "/robots.txt":
 		case "/favicon.ico":
 			return new Response("no", { status: 404 });
-		case "/":
-			// test homepage
-			break;
 		case "/pengine/create":
 		case "/pengine/send":
 			return this.pengineHandle(request);
@@ -110,7 +138,7 @@ export class PengineDO extends PrologDO {
 		await Promise.all([this.points.delete(), this.query.delete()]);
 	}
 
-	async exec(id: string, req: Partial<PengineRequest>, start: number, persist: boolean): Promise<PengineResponse> {
+	async exec(id: string, req: Partial<PengineRequest>, start: number, persist: boolean): Promise<PengineReply> {
 		const meta: PengineMetadata = (await this.meta.get()) ?? {src_urls: [], title: ""};
 		const [parentReq, next] = await this.loadState();
 
@@ -118,7 +146,7 @@ export class PengineDO extends PrologDO {
 			console.log("TODO: stop", req);	
 			if (persist) {
 				this.save();
-				await this.deleteState(id);
+				await this.deleteState();
 			}
 			return {
 				event: "stop",
@@ -214,18 +242,19 @@ export class PengineDO extends PrologDO {
 		const chunk = req.chunk ?? this.req?.chunk;
 		const [query, answers] = await this.run(req.ask ?? next, chunk, false);
 
-		const results = [];
-		const links = [];
-		let projection: any[] = [];
+		const results: pl.type.Value[] = [];
+		const links: pl.type.Substitution[] = [];
+		let projection: pl.type.Term<number, string>[] = [];
 		let queryGoal: pl.type.Value | undefined;
 		let rest: pl.type.State[] = [];
 		for await (const [goal, answer] of answers) {
 			const tmpl: pl.type.Value = req.template ?? goal;
-			if (answer.indicator == "throw/1") {
-				const event: ErrorEvent = {
+			// TODO: fix this type
+			if ((answer as any).indicator == "throw/1") {
+				const event: PengineReply = {
 					event: "error",
 					id: id,
-					data: answer.args[0],
+					error: (answer as any).args[0],
 					meta: meta,
 					output: query.output(),
 				};
@@ -242,7 +271,7 @@ export class PengineDO extends PrologDO {
 
 			const term = tmpl.apply(answer);
 			results.push(term);
-			links.push(answer.links);
+			links.push(answer);
 		}
 		rest = query.thread.points;
 		const output = query.output();
@@ -256,7 +285,7 @@ export class PengineDO extends PrologDO {
 		const end = Date.now();
 		const time = (end - start) / 1000;
 
-		let event: PengineResponse;
+		let event: PengineReply;
 		if (results.length == 0) {
 			event = {
 				event: "failure",
@@ -266,11 +295,10 @@ export class PengineDO extends PrologDO {
 				meta: meta,
 				ask: req.ask,
 			};
-			if (DEBUG_DUMP) { event.debug = {dump: this.dumpAll()}; }
 		} else {
 			event = {
 				event: "success",
-				data: results,
+				results: results,
 				links: links, // TODO: fix this
 				id: id,
 				more: more,
@@ -281,23 +309,16 @@ export class PengineDO extends PrologDO {
 				meta: meta,
 				ask: req.ask,
 			};
-			if (DEBUG_DUMP) { event.debug = {dump: this.dumpAll()}; }
 		}
 
+		if (DEBUG_DUMP) { event.debug = {dump: this.dumpAll()}; }
+
 		if (!more && req.destroy) {
-			event = {
-				event: "destroy",
-				id: id,
-				data: event,
-			};
+			event.lifecycle = "destroy";
 		}
 
 		if (!parentReq && req.create) {
-			return {
-				event: "create",
-				id: id,
-				answer: event,
-			};
+			event.lifecycle = "create";
 		}
 
 		return event;
@@ -322,23 +343,28 @@ export class PengineDO extends PrologDO {
 	}
 
 	async pengineHandle(request: Request): Promise<Response> {
-		if (request.method != "POST") {
-			return new Response("bad method", { status: 405 });
-		}
-
 		const url = new URL(request.url);
 		const start = Date.now();
-		let msg: Partial<PengineRequest>;
-		let format = url.searchParams.get("format");
+		let msg!: Partial<PengineRequest>;
+		let format = url.searchParams.get("format") as Format;
 		const create = url.pathname == "/pengine/create";
 
-		const contentType = request.headers.get("Content-Type")?.toLowerCase() || "";
-		if (contentType.includes("application/json")) {
-			msg = await parseAskJSON(this.pl, await request.json());
-		} else if (contentType.includes("prolog")) {
-			msg = await parseAsk(this.pl, await request.text());
-		} else {
-			return new Response("Unsupported Media Type", { status: 415 });
+		switch (request.method) {
+		case "POST":
+			const contentType = request.headers.get("Content-Type")?.toLowerCase() || "";
+			if (contentType.includes("application/json")) {
+				msg = await parseAskJSON(this.pl, await request.json());
+			} else if (contentType.includes("prolog")) {
+				msg = await parseAsk(this.pl, await request.text());
+			} else {
+				return new Response("Unsupported Media Type", { status: 415 });
+			}
+			break;
+		case "GET":
+			msg = await parseAskForm(this.pl, url.searchParams);
+			break;
+		deafult:
+			return new Response("bad method", { status: 405 });
 		}
 
 		if (!format && msg.format) {
@@ -385,7 +411,7 @@ export class PengineDO extends PrologDO {
 		case "hello":
 			break;
 		case "query":
-			const req = await parseAskJSON(this.pl.session, msg.query);
+			const req = await parseAskJSON(this.pl, msg.query);
 			req.id = id;
 			req.format = "json";
 
@@ -439,6 +465,22 @@ async function parseAskJSON(sesh: Prolog, obj: any): Promise<Partial<PengineRequ
 	return req;
 }
 
+async function parseAskForm(sesh: Prolog, form: URLSearchParams): Promise<Partial<PengineRequest>> {
+	const req: Partial<PengineRequest> = {
+		id: form.get("id") ?? undefined,
+		ask: fixQuery(form.get("ask") ?? undefined),
+		src_text: form.get("src_text") ?? undefined,
+		src_url: form.get("src_url") ?? undefined,
+		format: form.get("format") as Format ?? undefined,
+		application: form.get("application") || DEFAULT_APPLICATION,
+		chunk: form.get("chunk") ? Number(form.get("chunk")) : undefined,
+	};
+	if (form.get("template")) {
+		req.template = await parseTerm(sesh, form.get("template")!);
+	}
+	return req;
+}
+
 async function parseTerm(sesh: Prolog, raw: string): Promise<pl.type.Value> {
 	// const thread = new pl.type.Thread(pl.sesh.session);
 	raw = raw.trim();
@@ -448,17 +490,17 @@ async function parseTerm(sesh: Prolog, raw: string): Promise<pl.type.Value> {
 	raw = `ParsedTermXX = (${raw}).`;
 	const answers = sesh.query(raw);
 	let term;
-	for await (const [, answer] of answers) {
-		if (answer.indicator == "throw/1") {
+	for await (const [_, answer] of answers) {
+		if (pl.type.is_error(answer)) {
 			throw answer;
 		}
-		term = answer.links["ParsedTermXX"];
+		term = (answer as pl.type.Substitution).links["ParsedTermXX"];
 		break;
 	}
 	if (!term) {
 		throw "couldn't parse raw";
 	}
-	return term;
+	return term as pl.type.Value;
 }
 
 async function parseAsk(sesh: Prolog, ask: string): Promise<Partial<PengineRequest>> {
@@ -485,32 +527,33 @@ async function parseAsk(sesh: Prolog, ask: string): Promise<Partial<PengineReque
 	let arg: pl.type.Term<number, string> = term.args[1] as pl.type.Term<number, string>;
 	while (arg.indicator !== "[]/0") {
 		const lhs = arg.args[0] as pl.type.Term<number, string>;
+		const rhs = lhs.args[0] as pl.type.Term<number, string>
 		switch (lhs.indicator) {
 		case "id/1":
-			result.id = lhs.args[0].toJavaScript();
+			result.id = rhs.id;
 			break;
 		case "src_text/1":
-			result.src_text = lhs.args[0].toJavaScript();
+			result.src_text = rhs.id;
 			break;
 		case "destroy/1":
-			result.destroy = lhs.args[0].toJavaScript() == "true";
+			result.destroy = rhs.id === "true";
 			break;
 		case "template/1":
-			result.template = await parseTerm(sesh, lhs.args[0].body);
+			result.template = await parseTerm(sesh, rhs.id);
 			break;
 		case "format/1":
-			result.format = lhs.args[0].toJavaScript();
+			result.format = rhs.id as Format;
 			break;
 		case "application/1":
-			result.application = lhs.args[0].toJavaScript();
+			result.application = rhs.id;
 			break;
 		case "chunk/1":
-			result.chunk = lhs.args[0].toJavaScript();
+			result.chunk = (lhs.args[0] as pl.type.Num).value;
 			break;
 		case undefined:
 			throw "invalid ask:" + ask;
 		default:
-			console.log("idk:", lhs.indicator);
+			console.log("unhandled ask option:", lhs.toString(), rhs.toString());
 		}
 		arg = arg.args[1] as pl.type.Term<number, string>;
 	}
