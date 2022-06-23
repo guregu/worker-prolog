@@ -2,6 +2,7 @@ import { html, HTML } from "@worker-tools/html";
 import { favicon, indexStyle } from "./style";
 import { Application } from "../application";
 import { texteditJS } from "./scripts";
+import { renderDump } from ".";
 
 // TODO: work in progress for rendering "app data" for long-running Pengines
 export function renderApplication(app: Application, params: URLSearchParams): HTML {
@@ -49,9 +50,7 @@ export function renderApplication(app: Application, params: URLSearchParams): HT
 
 			<br>
 
-			<section id="dump">
-				<pre>${app?.dump}</pre>
-			</section>
+			${app.dump && renderDump(app.dump)}
 
 			${app && app.listeners.length > 0 && html`
 				<h3>Listeners</h3>

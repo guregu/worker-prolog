@@ -11,7 +11,7 @@ export interface Application {
 	meta: PengineMetadata,
 	txid: number,
 	listeners: string[];
-	dump?: string;
+	dump?: Record<string, string>;
 }
 
 export class ApplicationDO extends PrologDO {
@@ -125,7 +125,7 @@ export class ApplicationDO extends PrologDO {
 			meta: meta,
 			txid: this.txid,
 			listeners: Array.from(this.sockets.keys()),
-			// dump: this.dumpApp(meta),
+			dump: this.dumpAll(),
 		};
 	}
 

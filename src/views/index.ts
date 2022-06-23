@@ -100,15 +100,7 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 
 				<br>
 
-				${debug && debug?.dump && html`
-					<details id="dump" class="dump">
-						<summary>State</summary>
-
-						${Object.entries(debug.dump).map(([k, v]) => html`
-							<h4>${k}</h4>
-							<pre>${v}</pre>
-						`)}
-					</details>`}
+				${debug && debug?.dump && renderDump(debug.dump)}
 				
 				${result && html`
 					<details id="raw" class="dump">
@@ -269,4 +261,16 @@ function renderWelcome(): HTML {
 			<li><a href="https://www.metalevel.at/prolog" target="_blank">The Power of Prolog</a></li>
 		</ul>
 	</main>`
+}
+
+export function renderDump(dump: Record<string, string>): HTML {
+	return html`
+	<details id="dump" class="dump">
+		<summary>State</summary>
+
+		${Object.entries(dump).map(([k, v]) => html`
+			<h4>${k}</h4>
+			<pre>${v}</pre>
+		`)}
+	</details>`;
 }

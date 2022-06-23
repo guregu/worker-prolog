@@ -2,11 +2,10 @@ import { HTMLResponse } from "@worker-tools/html";
 import pl from "tau-prolog";
 import { Env } from ".";
 import { functor, makeError, newStream, Prolog, Query } from "./prolog";
-import { prologResponse } from "./response";
 import { Store } from "./unholy";
 import { renderOutput } from "./views/result";
 
-const TX_CHUNK_SIZE = 0;
+const TX_CHUNK_SIZE = 25;
 
 export interface TXMeta {
 	id: string;
@@ -100,18 +99,21 @@ export class PrologDO {
 			return;
 		}
 
-		this.state.blockConcurrencyWhile(async () => {
-			this.txid++;
+		// this.state.blockConcurrencyWhile(async () => {
+			const txid = ++this.txid;
+			this.dirty = false;
 			this.lastmod = Date.now();
 			const progs = this.dumpLocal(exclude);
-			await this.prog.putRecord(`tx${this.txid}`, progs);
-			await this.txmeta.put({
-				id: this.id,
-				txid: this.txid,
-				time: this.lastmod,
-			});
+			await Promise.all([
+				this.prog.putRecord(`tx${txid}`, progs),
+				this.txmeta.put({
+					id: this.id,
+					txid: txid,
+					time: this.lastmod,
+				})
+			]);
 			this.dirty = false;
-		})
+		// })
 	}
 
 	dump(): string {
@@ -291,8 +293,8 @@ export class PrologDO {
 
 	// tx web handler
 	async handleTx(request: Request): Promise<Response> {
-		const url = new URL(request.url);
-		const name = url.searchParams.get("rename") ?? undefined;
+		// const url = new URL(request.url);
+		// const name = url.searchParams.get("rename") ?? undefined;
 		const pengine = request.headers.get("Pengine") ?? undefined;
 
 		const prog = await request.text();
