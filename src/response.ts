@@ -1,6 +1,6 @@
 import pl, { ErrorInfo } from "tau-prolog";
 import { JSONResponse } from "@worker-tools/json-fetch";
-import { ARBITRARY_HIGH_NUMBER, Format, PengineMetadata, PengineReply } from "./pengines";
+import { ARBITRARY_HIGH_NUMBER, Format, PengineMetadata, PengineReply, PENGINES_DEBUG } from "./pengines";
 import { functor, makeList, Prolog, toProlog } from "./prolog";
 
 /* eslint-disable no-case-declarations */
@@ -121,9 +121,15 @@ function formatJSON(reply: PengineReply, prolog?: Prolog): Response {
 		}));
 	case "error":
 		const term = toProlog(reply.error);
-		let error;
-		if (pl.type.is_error(term)) {
-			error = pl.flatten_error(term);
+		let code;
+		let debug = reply.debug ?? {};
+		if (pl.type.is_error(term) && reply.debug) {
+			debug.error = pl.flatten_error(term);
+			code = debug.error.type;
+		} else if (pl.type.is_term(term)) {
+			code = term.id;
+		} else {
+			code = term.toString({session: prolog?.session});
 		}
 		return new JSONResponse(wrap({
 			event: "error",
@@ -134,8 +140,8 @@ function formatJSON(reply: PengineReply, prolog?: Prolog): Response {
 			output: reply.output,
 			meta: reply.meta,
 			ask: reply.ask,
-			debug: reply.debug,
-			error: error,
+			debug: PENGINES_DEBUG ? debug : undefined,
+			code: code,
 		}))
 
 	case "stop":
@@ -236,7 +242,6 @@ function formatProlog(reply: PengineReply, prolog?: Prolog): Response {
 
 	switch (reply.event) {
 	case "ping":
-		// TODO: double-check, same as create?
 	case "create":
 		const term = new pl.type.Term("create", [
 			id,

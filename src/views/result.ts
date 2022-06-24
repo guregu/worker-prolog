@@ -58,6 +58,8 @@ function eventEmoji(result: PengineResponse): string {
 		return "😵";
 	case "create":
 		return "✨";
+	case "destroy":
+		return "💥";
 	default:
 		return "❓";
 	}

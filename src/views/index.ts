@@ -110,11 +110,9 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 				
 				<br>
 				
-				<footer>
-					<div class="fleuron">⬥ ❦ ⬥</div>
-					${typeof result?.time == "number" && html`<small>query time: ${result.time} sec</small><br>`}
-					<a href="https://github.com/guregu/worker-prolog" target="_blank">worker-prolog</a>
-				</footer>
+				${renderFooter(
+					typeof result?.time === "number" ? `query time: ${result.time}` : undefined
+				)}
 
 				${texteditJS}
 				${socketJS}
@@ -260,7 +258,7 @@ function renderWelcome(): HTML {
 		<ul>
 			<li><a href="https://www.metalevel.at/prolog" target="_blank">The Power of Prolog</a></li>
 		</ul>
-	</main>`
+	</main>`;
 }
 
 export function renderDump(dump: Record<string, string>): HTML {
@@ -273,4 +271,13 @@ export function renderDump(dump: Record<string, string>): HTML {
 			<pre>${v}</pre>
 		`)}
 	</details>`;
+}
+
+export function renderFooter(blurb?: string): HTML {
+	return html`
+	<footer>
+		<div class="fleuron">⬥ ❦ ⬥</div>
+		${blurb && html`<small>${blurb}</small><br>`}
+		<a href="https://github.com/guregu/worker-prolog" target="_blank">worker-prolog</a>
+	</footer>`;
 }

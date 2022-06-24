@@ -3,7 +3,7 @@ import { JSONResponse } from "@worker-tools/json-fetch";
 import { functor, makeError } from "./prolog";
 import { PrologDO } from "./prolog-do";
 import { PengineMetadata } from "./pengines";
-import { makeResponse, Store } from "./unholy";
+import { Store } from "./unholy";
 import { prologResponse } from "./response";
 
 export interface Application {
@@ -12,6 +12,7 @@ export interface Application {
 	txid: number,
 	listeners: string[];
 	dump?: Record<string, string>;
+	compiled: string;
 }
 
 export class ApplicationDO extends PrologDO {
@@ -57,6 +58,10 @@ export class ApplicationDO extends PrologDO {
 		req.application = this.id;
 		this.dirty = true;
 
+		if (req.src_urls.length > 0 || req.src_text) {
+			this.pl.resetRules();
+		}
+
 		for (const url of req.src_urls) {
 			const resp = await fetch(new Request(url));
 			if (resp.status != 200) {
@@ -82,10 +87,9 @@ export class ApplicationDO extends PrologDO {
 		}
 
 		if (req.src_text) {
+			// wipe all static predicates, otherwise it's impossible to delete them
 			await this.pl.consult(req.src_text, {
 				session: this.pl.session,
-				context_module: "user",
-				// context_module: "app",
 				reconsult: true,
 				url: false,
 				html: false,
@@ -107,7 +111,11 @@ export class ApplicationDO extends PrologDO {
 		]);
 
 		this.broadcast("true.");
-		return makeResponse(await this.info());
+		return new JSONResponse(await this.info());
+	}
+
+	main() {
+		return this.pl.session.modules[this.id] ?? this.pl.session.modules.user;
 	}
 
 	async getMeta(): Promise<PengineMetadata> {
@@ -126,18 +134,12 @@ export class ApplicationDO extends PrologDO {
 			txid: this.txid,
 			listeners: Array.from(this.sockets.keys()),
 			dump: this.dumpAll(),
+			compiled: this.compile(),
 		};
 	}
 
-	dumpApp(meta: PengineMetadata): string {
-		let out = `% app = ${this.id}, id = ${this.state.id.toString()}\n`;
-		// out += meta.src_text ? meta.src_text + "\n" : "";
-		out += this.dumpModule(this.pl.session.modules.user, "app");
-		return out;
-	}
-
 	async handleIndex(_request: Request): Promise<Response> {
-		return makeResponse(await this.info());
+		return new JSONResponse(await this.info());
 	}
 
 	async handleMeta(_request: Request): Promise<Response> {
@@ -148,8 +150,9 @@ export class ApplicationDO extends PrologDO {
 
 	async handleDump(request: Request): Promise<Response> {
 		const url = new URL(request.url);
-		const mod = url.searchParams.get("module") ?? "user";
+		const modID = url.searchParams.get("module");
+		const mod = modID ? this.pl.session.modules[modID] : this.main();
 		const rename = url.searchParams.get("rename") ?? "app";
-		return prologResponse(this.dumpModule(this.pl.session.modules[mod], rename));
+		return prologResponse(this.dumpModule(mod, rename));
 	}
 }

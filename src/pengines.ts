@@ -1,4 +1,4 @@
-import pl from "tau-prolog";
+import pl, { ErrorInfo } from "tau-prolog";
 import { JSONResponse } from "@worker-tools/json-fetch";
 
 import { Prolog, makeError, functor, toProlog } from "./prolog";
@@ -11,7 +11,7 @@ import { HTMLResponse } from "@worker-tools/html";
 
 export const DEFAULT_APPLICATION = "pengine_sandbox";
 export const ARBITRARY_HIGH_NUMBER = 100;
-const DEBUG_DUMP = true;
+export const PENGINES_DEBUG = true;
 
 export type Format = "json" | "prolog" | "json_atom" | "raw";
 export type Command = "create" | "destroy" | "ask" | "next" | "stop" | "ping";
@@ -45,12 +45,13 @@ export interface PengineReply {
 	projection?: pl.type.Term<number, string>[], // atoms
 	time?: number, // time taken
 	
-	error?: pl.type.Term<number, string>,
+	error?: pl.type.Value, // value from throw/1
 	links?: pl.type.Substitution[],
 	
 	meta?: PengineMetadata,
 	debug?: {
 		dump?: Record<string, string>,
+		error?: ErrorInfo,
 	},
 	slave_limit?: number,
 }
@@ -177,6 +178,10 @@ export class PengineDO extends PrologDO {
 			meta.src_urls.push(req.src_url);
 		}
 
+		if (this.dirty || req.src_text) {
+			this.pl.resetRules();
+		}
+
 		for (const url of meta.src_urls) {
 			if (!this.consulted_urls.includes(url)) {
 				const resp = await fetch(new Request(url));
@@ -249,29 +254,30 @@ export class PengineDO extends PrologDO {
 		let rest: pl.type.State[] = [];
 		for await (const [goal, answer] of answers) {
 			const tmpl: pl.type.Value = req.template ?? goal;
-			// TODO: fix this type
-			if ((answer as any).indicator == "throw/1") {
+			if (pl.type.is_error(answer)) {
+				answer;
 				const event: PengineReply = {
 					event: "error",
 					id: id,
-					error: (answer as any).args[0],
+					error: answer.args[0],
 					meta: meta,
 					output: query.output(),
+					debug: PENGINES_DEBUG ? {dump: this.dumpAll()} : undefined,
 				};
-				if (DEBUG_DUMP) { event.debug = {dump: this.dumpAll()}; }
 				return event;
+			} else if (pl.type.is_substitution(answer)) {
+				if (!queryGoal && answer.links) {
+					queryGoal = goal;
+					projection = Object.keys(answer.links).
+						filter(x => !x.startsWith("_")).
+						map(x => new pl.type.Term(x, []));
+				}
+				const term = tmpl.apply(answer);
+				results.push(term);
+				links.push(answer);
+			} else {
+				throw new Error(`weird answer: %{answer}`);
 			}
-
-			if (!queryGoal && answer.links) {
-				queryGoal = goal;
-				projection = Object.keys(answer.links).
-					filter(x => !x.startsWith("_")).
-					map(x => new pl.type.Term(x, []));
-			}
-
-			const term = tmpl.apply(answer);
-			results.push(term);
-			links.push(answer);
 		}
 		rest = query.thread.points;
 		const output = query.output();
@@ -284,6 +290,7 @@ export class PengineDO extends PrologDO {
 
 		const end = Date.now();
 		const time = (end - start) / 1000;
+		const debug = PENGINES_DEBUG ? {dump: this.dumpAll()} : undefined;
 
 		let event: PengineReply;
 		if (results.length == 0) {
@@ -294,6 +301,7 @@ export class PengineDO extends PrologDO {
 				output: output,
 				meta: meta,
 				ask: req.ask,
+				debug: debug,
 			};
 		} else {
 			event = {
@@ -308,10 +316,10 @@ export class PengineDO extends PrologDO {
 				output: output,
 				meta: meta,
 				ask: req.ask,
+				debug: debug,
 			};
 		}
 
-		if (DEBUG_DUMP) { event.debug = {dump: this.dumpAll()}; }
 
 		if (!more && req.destroy) {
 			event.lifecycle = "destroy";
@@ -390,8 +398,14 @@ export class PengineDO extends PrologDO {
 				throw(err);
 			}
 
-			const ball = toProlog(err);
+			const ball = pl.type.is_error(err) ? err : toProlog(err);
+			return formatResponse(format, {
+				event: "error",
+				id: id,
+				error: ball as pl.type.Term<number, string>,
+			})
 			if (format == "json") {
+
 				const resp = {
 					"data": serializeTerm(ball, this.pl),
 					"event": "error",

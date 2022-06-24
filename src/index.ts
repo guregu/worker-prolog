@@ -1,8 +1,8 @@
 import { HTMLResponse } from "@worker-tools/html";
+import { Application } from "./application";
 
 import { DEFAULT_APPLICATION, PengineRequest } from "./pengines";
 import { PengineResponse } from "./response";
-import { parseResponse } from "./unholy";
 import { renderApplication } from "./views/app";
 import { renderIndex } from "./views/index";
 import { renderResult } from "./views/result";
@@ -91,7 +91,7 @@ async function handleApp(env: Env, request: Request) {
 	} else {
 		resp = await appDO.fetch(new Request(href));
 	}
-	const result = await parseResponse(resp);
+	const result = await resp.json<Application>();
 	const content = renderApplication(result, url.searchParams);
 	return new HTMLResponse(content);
 }

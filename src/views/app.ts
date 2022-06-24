@@ -2,7 +2,7 @@ import { html, HTML } from "@worker-tools/html";
 import { favicon, indexStyle } from "./style";
 import { Application } from "../application";
 import { texteditJS } from "./scripts";
-import { renderDump } from ".";
+import { renderDump, renderFooter } from ".";
 
 // TODO: work in progress for rendering "app data" for long-running Pengines
 export function renderApplication(app: Application, params: URLSearchParams): HTML {
@@ -48,6 +48,8 @@ export function renderApplication(app: Application, params: URLSearchParams): HT
 				<datalist id="examples"></datalist>
 			</section>
 
+			<pre>${app.compiled}</pre>
+
 			<br>
 
 			${app.dump && renderDump(app.dump)}
@@ -65,10 +67,7 @@ export function renderApplication(app: Application, params: URLSearchParams): HT
 						<code>${JSON.stringify(app)}</code>
 					</details>`}
 			
-			<footer>
-				<div class="fleuron">⬥ ❦ ⬥</div>
-				<a href="https://github.com/guregu/worker-prolog" target="_blank">worker-prolog</a>
-			</footer>
+			${renderFooter()}
 			${texteditJS}
 		</body>
 	</html>`;

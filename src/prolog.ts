@@ -8,6 +8,7 @@ import plFmt from "tau-prolog/modules/format";
 import { betterJSON } from "./modules/json";
 import { transactions, linkedModules } from "./modules/tx";
 import { fetchModule } from "./modules/fetch";
+import { dumpModule } from "./prolog-do";
 
 plLists(pl);
 plChrs(pl);
@@ -47,7 +48,7 @@ export class Prolog {
 		}
 	}
 
-	public async consult(src: string, options: {success?: () => void, error?: (err: pl.type.Term<1, "throw">) => void, [k: string]: unknown} = {}) {
+	public async consult(src: string, options: {success?: () => void, error?: (err: pl.type.Term<1, "throw/1">) => void, [k: string]: unknown} = {}) {
 		const p = new Promise<void>((resolve, reject) => {
 			if (typeof options.success == "function") {
 				const fn = options.success;
@@ -63,13 +64,13 @@ export class Prolog {
 
 			if (typeof options.error == "function") {
 				const fn = options.error;
-				options.error = function(err: pl.type.Term<1, "throw">) {
-					reject(makeError("consult_error", err));
+				options.error = function(err: pl.type.Term<1, "throw/1">) {
+					reject(err);
 					fn.call(this, err);
 				}
 			} else {
 				options.error = (err: unknown) => {
-					reject(makeError("consult_error", err));
+					reject(err);
 					console.error("invalid src text:", src);
 				}
 			}
@@ -97,6 +98,21 @@ export class Prolog {
 		const fns = this.deferred;
 		this.deferred = [];
 		await Promise.all(fns);
+	}
+
+	// deletes static predicates, meta predicate declarations, and multifile predicate declarations
+	// useful before consulting a dump, otherwise these will stick around forever
+	public resetRules() {
+		for (const mod of Object.values(this.session.modules).filter(x => !x.is_library)) {
+			// TODO: handle dynamic predicates as well
+			// will require a different approach
+			mod.multifile_predicates = {};
+			mod.meta_predicates = {}
+			for (const [pi, on] of Object.entries(mod.public_predicates)) {
+				if (on) { continue; }
+				mod.rules[pi] = [];
+			}
+		}
 	}
 }
 
@@ -173,8 +189,7 @@ export class Query {
 		if (typeof ask == "string") {
 			this.ask = ask;
 			this.thread.query(ask, {
-				error: (ball: pl.type.Term<1, "throw">) => {
-					console.log("ARGZ", arguments);
+				error: (ball: pl.type.Term<1, "throw/1">) => {
 					this.consultErr = ball;
 				},
 			});
@@ -212,7 +227,7 @@ export class Query {
 	public async drain() {
 		const answers = this.answer();
 		for await (const [_, answer] of answers) {
-			if ((answer as any).indicator == "throw/1") {
+			if (pl.type.is_error(answer)) {
 				console.error(this.thread.session.format_answer(answer));
 				throw answer;
 			}
@@ -231,6 +246,14 @@ export class Query {
 	public more(): boolean {
 		return this.thread.points.length > 0;
 	}
+}
+
+export function functor(head: string, ...args: any[]): pl.type.Term<number, string> {
+	return new pl.type.Term(head, args.map(toProlog));
+}
+
+export function atom(v: string): pl.type.Term<0, string> {
+	return new pl.type.Term(v, []);
 }
 
 export function makeList(array: pl.type.Value[] = [], cons = new pl.type.Term("[]", [])) {
@@ -265,15 +288,13 @@ export function toProlog(x: any): pl.type.Value {
 	case "string":
 		return new pl.type.Term(x, []);
 	case "undefined":
-		return new pl.type.Term("@", [new pl.type.Term("undefined", [])]);
+		return new pl.type.Term("{}", [new pl.type.Term("undefined", [])]);
 	default:
 		if (x === null) {
-			return new pl.type.Term("@", [new pl.type.Term("null", [])]);
+			return new pl.type.Term("{}", [new pl.type.Term("null", [])]);
 		}
 
-		if (x instanceof pl.type.Term || 
-				x instanceof pl.type.Num || 
-				x instanceof pl.type.Var) {
+		if (pl.type.is_term(x) || pl.type.is_number(x) || pl.type.is_variable(x) || pl.type.is_js_object(x)) {
 			return x;
 		}
 		
@@ -288,11 +309,23 @@ export function toProlog(x: any): pl.type.Value {
 		}
 
 		// hail mary
-		console.log("UNKNOWN TERM???", x);
-		return new pl.type.Term("???", [new pl.type.Term(`${x}`, [])]);
+		console.warn("UNKNOWN TERM???", x);
+		return functor("???", `${x}`);
 	}
 }
 
-export function functor(head: string, ...args: any[]): pl.type.Term<number, string> {
-	return new pl.type.Term(head, args.map(toProlog));
+export function isEmpty(mod: pl.type.Module): boolean {
+	if (!mod) {
+		return true;
+	}
+	if (Object.keys(mod.public_predicates).length > 0) {
+		return false;
+	}
+	if (Object.keys(mod.rules).length > 0) {
+		return false;
+	}
+	if (mod.initialization && mod.initialization.length > 0) {
+		return false;
+	}
+	return true;
 }

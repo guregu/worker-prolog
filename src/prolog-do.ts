@@ -1,7 +1,7 @@
 import { HTMLResponse } from "@worker-tools/html";
 import pl from "tau-prolog";
 import { Env } from ".";
-import { functor, makeError, newStream, Prolog, Query } from "./prolog";
+import { functor, isEmpty, makeError, makeList, newStream, Prolog, Query } from "./prolog";
 import { Store } from "./unholy";
 import { renderOutput } from "./views/result";
 
@@ -144,6 +144,25 @@ export class PrologDO {
 		return progs;
 	}
 
+	compile(rename?: string): string {
+		let prog = `%%% id: ${this.id} cfid: ${this.state.id.toString()} txid: ${this.txid} lastmod: ${this.lastmod} now: ${Date.now()}\n`;
+		for (const mod of Object.values(this.pl.session.modules) as pl.type.Module[]) {
+			if (mod.is_library) {
+				continue;
+			}
+			if (this.links[mod.id]) {
+				continue;
+			}
+
+			if (mod.id === "user" && rename) {
+				prog += this.dumpModule(mod, rename);
+			} else {
+				prog += this.dumpModule(mod);
+			}
+		}
+		return prog;
+	}
+
 	dumpAll(): Record<string, string> {
 		const progs: Record<string, string> = {};
 		for (const mod of Object.values(this.pl.session.modules) as pl.type.Module[]) {
@@ -156,57 +175,86 @@ export class PrologDO {
 	}
 
 	dumpModule(mod: pl.type.Module, name?: string) {
-		if (!mod || !mod.rules) {
-			return "";
+		if (isEmpty(mod)) {
+			return `%%% empty module: ${mod.id} alias: ${name}\n`;
 		}
+
 		if (!name) {
 			name = mod.id;
 		}
 
-		// const moduleTerm = new pl.type.Term(name, []);
+		const modID = new pl.type.Term(name, []);
+		const opts = {session: this.pl.session, quoted: true, ignore_ops: false};
 
-		let prog = `%%% ${mod.id} as ${name}\n`;
-		prog += `:- module(${name}, [${Object.keys(mod.rules).join(",")}]).\n`
-		
-		// // TODO: broken?
-		// for (const dep of mod.dependencies) {
-		// 	if (dep == "system") { continue; }
-		// 	prog += `:- use_module(library(${dep})).\n`;
-		// }
-		prog += `:- use_module(library(lists)).\n:- use_module(library(js)).\n:- use_module(library(random)).\n:- use_module(library(format)).\n:- use_module(library(charsio)).\n\n`;
+		let prog = `%%% module: ${mod.id} alias: ${name}\n`;
 
+		/*
+			directives
+		*/
 
-		for (const [pi, rs] of Object.entries(mod.rules) as [string, pl.type.Rule[]][]) {
+		// module/1
+		prog += ":- " + functor("module", modID, makeList(
+			// TODO: 😅
+			Object.entries(mod.rules).filter(([pi, rules]) => {
+				return mod.is_public_predicate(pi) || 
+				(typeof mod.exports === "string" && mod.exports === "all") ||
+				(Array.isArray(mod.exports) && mod.exports.includes(pi)) || 
+				(mod.id === "user" &&  rules.length > 0);
+			}).map(([pi, _]) => { return piTerm(pi) })
+		)).toString({session: this.pl.session, quoted: true, ignore_ops: false}) + ".\n";
+
+		// use_module/1
+		for (const dep of Object.keys(mod.modules)) {
+			if (dep == "system") { continue; }
+			if (this.links[dep]) {
+				prog += `:- use_module(application(${dep})).\n`;	
+			} else {
+				prog += `:- use_module(library(${dep})).\n`;
+			}
+		}
+		// dynamic/1
+		for (const [pi, _] of Object.entries(mod.public_predicates).filter(([_, on]) => on)) {
 			prog += `:- dynamic(${pi}).\n`;
+		}
+
+		// multifile/1
+		for (const [pi, _] of Object.entries(mod.multifile_predicates).filter(([_, on]) => on)) {
+			prog += `:- multifile(${pi}).\n`;
+		} 
+
+		// meta_predicate/1
+		for (const head of Object.values(mod.meta_predicates)) {
+			prog += `:- meta_predicate ${head.toString(opts)}.\n`
+		}
+
+		/*
+			rules
+		*/
+
+		for (const rs of Object.values(mod.rules)) {
 			for (const r of rs) {
 				const rule = r;
-				// const rule = r.clone();
-				// if (rule.head.indicator !== ":/2") {
-				// 	rule.head = new pl.type.Term(":", [
-				// 		moduleTerm,
-				// 		rule.head
-				// 	]);
-				// }
-				prog += rule.toString({session: this.pl.session, quoted: true}) + "\n";
+				prog += rule.toString(opts) + "\n";
 			}
 		}
 		return prog;
 	}
 
-	async run(prog: string | pl.type.State[], chunk?: number, throws = false): Promise<[Query, [pl.type.Term<number, string>, pl.type.Substitution][]]> {
+	async run(prog: string | pl.type.State[], chunk?: number, throws = false): Promise<[Query, [pl.type.Term<number, string>, pl.type.Substitution|pl.type.Term<1, "throw/1">][]]> {
 		const query = new Query(this.pl.session, prog);
 		const answers = query.answer();
-		const results: [pl.type.Term<number, string>, pl.type.Substitution][] = [];
+		const results: [pl.type.Term<number, string>, pl.type.Substitution|pl.type.Term<1, "throw/1">][] = [];
 		for await (const [goal, answer] of answers) {
-			if (pl.type.is_term(answer)) {
+			if (pl.type.is_error(answer)) {
 				console.error(this.pl.session.format_answer(answer));
 				if (throws) {
 					throw answer;
 				}
-				continue;
+				results.push([goal, answer])
+			} else if (pl.type.is_substitution(answer)) {
+				results.push([goal, answer as pl.type.Substitution]);
 			}
 			
-			results.push([goal, answer as pl.type.Substitution]);
 			if (chunk && results.length == chunk) {
 				break;
 			}
@@ -240,7 +288,7 @@ export class PrologDO {
 			let modID = "user";
 			if (pl.type.is_term(op.args[0])) {
 				if (op.args[0].indicator === ":/2") {
-					const mod = (op.args[0] as pl.type.Term<2, ":">).args[0];
+					const mod = (op.args[0] as pl.type.Term<2, ":/2">).args[0];
 					if (pl.type.is_atom(mod)) {
 						modID = mod.id;
 						// transform: foo:bar(baz) → bar(baz).
@@ -483,6 +531,15 @@ export function dumpModule(mod: pl.type.Module): string {
 		}
 	}
 	return prog;
+}
+
+function piTerm(pi: string): pl.type.Term<2, "//2"> {
+	const idx = pi.lastIndexOf("/")
+	if (idx == -1) { throw `invalid pi: ${pi}` }
+	return new pl.type.Term("/", [
+		new pl.type.Term(pi.slice(0, idx), []),
+		new pl.type.Num(Number(pi.slice(idx+1)), false)
+	]);
 }
 
 declare global {

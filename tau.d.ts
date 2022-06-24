@@ -218,7 +218,7 @@ declare module 'tau-prolog' {
 		  public consult(program: string, options?: {
 			session?: Session;
 			success?: () => void;
-			error?: (err: Term<1, "throw">) => void;
+			error?: (err: Term<1, "throw/1">) => void;
 			reconsult?: boolean;
 			context_module?: string;
 			term_expansion?: boolean;
@@ -284,7 +284,7 @@ declare module 'tau-prolog' {
   
 		  public query(query: string, options?: {
 			success?: () => void;
-			error?: (ball: pl.type.Term<1, "throw">) => void;
+			error?: (ball: pl.type.Term<1, "throw/1">) => void;
 		  }): void;
   
 		  public answer(callback: (answer: Answer) => void): void;
@@ -312,7 +312,7 @@ declare module 'tau-prolog' {
 
 		  public get_warnings(): string[];
 
-		  public format_answer(answer: Answer | Term<1, "throw">, thread?: Thread, options?: {session?: Session}): string;
+		  public format_answer(answer: Answer | Term<1, "throw/1">, thread?: Thread, options?: {session?: Session}): string;
 
 		  // custom worker-prolog extension
 		  public tx?: Term<number, string>[];
@@ -331,6 +331,14 @@ declare module 'tau-prolog' {
   
 		  public readonly exports: string[];
 
+		  public readonly dependencies: string[];
+		  public readonly modules: Record<string, Module>; // dependencies
+
+		  public /*readonly*/ public_predicates: Record<string, boolean>;
+		  public /*readonly*/ multifile_predicates: Record<string, boolean>;
+		  public /*readonly*/ meta_predicates: Record<string, pl.type.Term<number, string>>;
+
+
 		  public readonly is_library: boolean;
 
 		  public readonly rules: Record<string, Rule[]>;
@@ -338,6 +346,11 @@ declare module 'tau-prolog' {
 		  public constructor(id: string, predicates: Record<string, Predicate>, exports: string[]);
   
 		  public exports_predicate(indicator: string): boolean;
+
+		  public is_public_predicate(indicator: string): boolean;
+
+		  // worker-prolog only:
+		  public initialization?: pl.type.Term<1, string>[]; // initialization/1 goals
 		}
 
 		class Stream {
@@ -405,6 +418,8 @@ declare module 'tau-prolog' {
 		function is_list(obj: any): obj is Term<2, './2'>;
 		
 		function is_instantiated_list(obj: any): obj is Term<2, './2'>;
+
+		function is_substitution(obj: any): obj is Substitution;
   
 		// js module
 		function is_js_object(obj: any): obj is JSValue;
@@ -431,7 +446,7 @@ declare module 'tau-prolog' {
 		function syntax_by_predicate(expected: string, indicator: string): type.Term<1, 'error'>;
 	  }
 	  
-	  type Answer = type.Substitution | type.Term<1, "throw">;
+	  type Answer = type.Substitution | type.Term<1, "throw/1">;
 
 	  function format_answer(answer: Answer): string;
 

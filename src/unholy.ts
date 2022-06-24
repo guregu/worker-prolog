@@ -114,9 +114,6 @@ export class Store<T> {
 		// 	return {[key]: str};
 		// }
 
-
-		let testCheck = "";
-
 		const obj: Record<string, string> = {};
 		let i = 0;
 		for (let pos = 0; pos < str.length; pos += size) {
@@ -139,9 +136,9 @@ export class Store<T> {
 	}
 }
 
-export function replacer(k, v): any {
+export function replacer(k: string, v: any): any {
 	if (Array.isArray(v)) {
-		return v.map(function(x, y) { return replacer(y, x); });
+		return v.map(function(x, y) { return replacer(y.toString(), x); });
 	}
 	if (typeof v == "object" && v != null) {
 		const proto = Object.getPrototypeOf(v);
@@ -160,7 +157,7 @@ const EOF = "\0x1E" // File Separator
 const CF_MAXSIZE = 131072;
 
 export function makeReviver(types: Record<string, any> = globalThis) {
-	return function(k, v) {
+	return function(k: string, v: any) {
 		if (typeof v !== "object" || v == null) {
 			return v;
 		}
@@ -175,19 +172,4 @@ export function makeReviver(types: Record<string, any> = globalThis) {
 		Object.setPrototypeOf(v, proto.prototype);
 		return v;
 	};
-}
-
-export async function parseResponse(resp: Response, types: Record<string, any> = globalThis): Promise<any> {
-	const reviver = makeReviver(types);
-	const text = await resp.text();
-	return JSON.parse(text, reviver);
-}
-
-export function makeResponse(obj: any): Response {
-	const text = JSON.stringify(obj, replacer);
-	return new Response(text, {
-		headers: {
-			"Content-Type": "application/json; charset=UTF-8"
-		}
-	});
 }
