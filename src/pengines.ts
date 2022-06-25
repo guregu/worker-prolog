@@ -186,7 +186,7 @@ export class PengineDO extends PrologDO {
 			if (!this.consulted_urls.includes(url)) {
 				const resp = await fetch(new Request(url));
 				if (resp.status != 200) {
-					throw makeError("consult_error", functor("bad_status", resp.status), url);
+					throw makeError("consult_error", functor("http_status", resp.status), functor("src_url", url));
 				}
 				const prog = await resp.text();
 
@@ -255,11 +255,21 @@ export class PengineDO extends PrologDO {
 		for await (const [goal, answer] of answers) {
 			const tmpl: pl.type.Value = req.template ?? goal;
 			if (pl.type.is_error(answer)) {
-				answer;
+				const ball = answer.args[0];
+				if (pl.type.is_term(ball) && ball.indicator === "stop/0") {
+					// await this.deleteState(query.id);
+					return {
+						event: "stop",
+						id: `${id}_${query.id}`,
+						meta: meta,
+						output: query.output(),
+						debug: PENGINES_DEBUG ? {dump: this.dumpAll()} : undefined,
+					};
+				}
 				const event: PengineReply = {
 					event: "error",
 					id: id,
-					error: answer.args[0],
+					error: ball,
 					meta: meta,
 					output: query.output(),
 					debug: PENGINES_DEBUG ? {dump: this.dumpAll()} : undefined,
@@ -439,13 +449,13 @@ export class PengineDO extends PrologDO {
 					throw(err);
 				}
 				const ball = toProlog(err);
-				const x = {
-					"meta": await this.meta.get(),
-					"data": serializeTerm(ball, this.pl),
-					"event": "error",
-					"id": id,
+				const resp: PengineResponse = {
+					event: "error",
+					id: id,
+					meta: await this.meta.get(),
+					data: serializeTerm(ball, this.pl),
 				};
-				const html = await (new HTMLResponse(renderResult(x as PengineResponse, true))).text();
+				const html = await (new HTMLResponse(renderResult(resp, true))).text();
 				this.broadcast("result:" + html);
 			}
 		}

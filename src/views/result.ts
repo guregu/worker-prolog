@@ -60,6 +60,8 @@ function eventEmoji(result: PengineResponse): string {
 		return "✨";
 	case "destroy":
 		return "💥";
+	case "stop":
+		return "🛑";
 	default:
 		return "❓";
 	}
@@ -97,6 +99,8 @@ function renderAnswersTable(result?: PengineResponse): HTML {
 		`;
 	case "create":
 		return html``;
+	case "stop":
+		return html`<b class="answer false">Stopped</b>: ${result.id}`
 	}
 
 	return html`unknown event: ${result.event}`;

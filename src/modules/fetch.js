@@ -57,9 +57,8 @@ export function fetchModule(pl) {
 			// var opt_timeout = 0;
 			// var opt_credentials = "false";
 			// var opt_async = "true";
-			// var opt_mime = null;
 			var opt_headers = [];
-			var opt_body = new FormData();
+			var opt_body = null;
 			var opt_user = null;
 			var opt_password = null;
 			// Options
@@ -112,13 +111,6 @@ export function fetchModule(pl) {
 						return;
 					}
 					opt_credentials = prop.id;
-				// mime/1
-				} else if(option.indicator === "mime/1") {
-					if(!pl.type.is_atom(prop)) {
-						thread.throw_error( pl.error.domain( "ajax_option", option, atom.indicator ) );
-						return;
-					}
-					opt_mime = prop.id;
 				// headers/1
 				} else if(option.indicator === "headers/1") {
 					if(!pl.type.is_list(prop)) {
@@ -127,6 +119,9 @@ export function fetchModule(pl) {
 					}
 					var hpointer = prop;
 					while(pl.type.is_term(hpointer) && hpointer.indicator === "./2") {
+						if (!opt_body) {
+							opt_body = new FormData();
+						}
 						var header = hpointer.args[0];
 						if(!pl.type.is_term(header) || header.indicator !== "-/2" || !pl.type.is_atom(header.args[0]) || !pl.type.is_atom(header.args[1])) {
 							thread.throw_error( pl.error.domain( "ajax_option", option, atom.indicator ) );
@@ -196,11 +191,11 @@ export function fetchModule(pl) {
 			}
 			fetch(new Request(url.id, {
 				method: method.id.toUpperCase(),
+				body: opt_body,
 			})).then(async (resp) => {
+				// Tau silently fails, but maybe better to throw?
 				if (!resp.ok) {
-					// TODO: ?
-					throw(resp.status)
-					return;
+					thread.throw_error(new pl.type.Term("error", []))
 				}
 
 				let term;

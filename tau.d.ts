@@ -235,7 +235,7 @@ declare module 'tau-prolog' {
   
 		  public prepend(states: State[]): void;
   
-		  public throw_error(error: Term<1, 'error'>): void;
+		  public throw_error(error: Term<number, string>): void;
   
 		  public success(state: State, parent?: State): void;
 
@@ -253,12 +253,10 @@ declare module 'tau-prolog' {
 
 		  public format_answer(answer: Answer | Term<1, "throw">, thread?: Thread, options?: {}): string;
 
-		  // not part of tau-prolog -- hack for worker-prolog
+		  // not part of tau-prolog -- hack for worker-prolog (Query interface)
 		  public ctrl: {
 			defer: (fn: Promise<void>) => void;
-			parent: {
-				linkApp(id: string): Promise<Module | undefined>;
-			};
+			parent: Pengine;
 		  };
 		}
   
@@ -296,9 +294,10 @@ declare module 'tau-prolog' {
   
 		  public prepend(states: State[]): void;
   
-		  public throw_error(error: Term<1, 'error'>): void;
+		  public throw_error(error: Term<number, string>): void;
   
 		  public success(state: State, parent?: State): void;
+		  public again(): void;
 
 		  public get_stream_by_alias(alias: string): Stream | undefined;
 
@@ -377,7 +376,8 @@ declare module 'tau-prolog' {
 			public readonly output: boolean;
 			public readonly input: boolean;
 
-			public constructor(stream: typeof this.stream, mode: typeof this.mode, alias?: string, type?: typeof this.type, reposition?: boolean, eof_action?: typeof this.eof_action);
+			public constructor(stream: typeof this.stream, mode: typeof this.mode, alias?: string,
+				 type?: typeof this.type, reposition?: boolean, eof_action?: typeof this.eof_action);
 
 			public clone(): this;
 			public equals(obj: _Value): boolean;
@@ -404,21 +404,13 @@ declare module 'tau-prolog' {
 		}
   
 		function is_variable(obj: any): obj is Var;
-  
 		function is_number(obj: any): obj is Num;
-  
-		function is_atom(obj: any): obj is Term<0, string>;
-
+  		function is_atom(obj: any): obj is Term<0, string>;
 		function is_term(obj: any): obj is Term<number, string>;
-  
-		function is_module(obj: any): obj is Term<1, 'module/1'>;
-  
-		function is_error(obj: any): obj is Term<1, 'throw/1'>;
-  
-		function is_list(obj: any): obj is Term<2, './2'>;
-		
-		function is_instantiated_list(obj: any): obj is Term<2, './2'>;
-
+  		function is_module(obj: any): obj is Term<1, "module/1">;
+  		function is_error(obj: any): obj is Term<1, "throw/1">;
+  		function is_list(obj: any): obj is Term<2, "./2">;
+		function is_instantiated_list(obj: any): obj is Term<2, "./2">;
 		function is_substitution(obj: any): obj is Substitution;
   
 		// js module
@@ -426,24 +418,24 @@ declare module 'tau-prolog' {
 	  }
   
 	  namespace error {
-		function existence(type: string, object: type.Term<number, string>|string, indicator: string):
-		type.Term<1, 'error'>;
-		function type(expected: string, found: type.Term<number, string>, indicator: string):
-		type.Term<1, 'error'>;
-		function instantiation(indicator: string): type.Term<1, 'error'>;
-		function domain(expected: string, found: type.Term<number, string>, indicator: string):
-		type.Term<1, 'error'>;
-		function representation(flag: string, indicator: string): type.Term<1, 'error'>;
+		function existence(type: string, object: type.Term<number, string>|string, indicator: string): type.Term<1, "error/1">;
+		function type(expected: string, found: Value, indicator: string): type.Term<1, "error/1">;
+		function instantiation(indicator: string): type.Term<1, "error/1">;
+		function domain(expected: string, found: type.Term<number, string>, indicator: string): type.Term<1, "error/1">;
+		function representation(flag: string, indicator: string): type.Term<1, "error/1">;
 		function permission(
-		  operation: string, type: string, found: type.Term<number, string>, indicator: string):
-		type.Term<1, 'error'>;
-		function evaluation(error: string, indicator: string): type.Term<1, 'error'>;
+		  operation: string, type: string, found: type.Term<number, string>, indicator: string): type.Term<1, "error/1">;
+		function evaluation(error: string, indicator: string): type.Term<1, "error/1">;
 		function syntax(
 		  token: undefined|
 		  {value: string, line: number, column: number, matches: string[], start: number},
 		  expected: string,
-		  last: boolean): type.Term<1, 'error'>;
-		function syntax_by_predicate(expected: string, indicator: string): type.Term<1, 'error'>;
+		  last: boolean): type.Term<1, "error/1">;
+		function syntax_by_predicate(expected: string, indicator: string): type.Term<1, "error/1">;
+	  }
+
+	  namespace util {
+		function str_indicator(str: string): type.Term<2, "//2">;
 	  }
 	  
 	  type Answer = type.Substitution | type.Term<1, "throw/1">;
@@ -468,6 +460,13 @@ declare module 'tau-prolog' {
 	  function flatten_error(term: type.Term<number, string>): ErrorInfo;
 	  
 	  function create(limit?: number): type.Session;
+
+	  class Pengine {
+		id: string;
+		queries: Map<string, Query>;
+		linkApp(id: string): Promise<type.Module | undefined>;
+		stop(id?: string);
+	  }
 	}
   
 	export = pl;

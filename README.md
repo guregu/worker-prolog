@@ -22,8 +22,8 @@ Serverless persistent Prolog via [Tau Prolog](http://www.tau-prolog.org/) and [C
 		- Clauses added/removed with `assertz/1` and `retractall/1` et. al. are saved via Durable Objects, letting you use prolog.run as a persistent database.
 	- Query state is also persistent (Pengines chunk option is supported in the API, but no UI for it yet)
 	- Interpreters can link to "applications" to keep track of shared state and code. Application state is synced between interpreters.
-		- Applications manifest as a special `app` module at the moment.
-		- See: [**Guestbook Example**](https://prolog.run/id/guestbook:test?ask=app%3Asigned%28Time%2C+User%2C+Msg%29).
+		- Link common modules with `:- use_module(application(ID)).`.
+		- Edit apps at: `https://prolog.run/app/ID_goes_here`
 		- Still a work in progress!
 
 ## Development Status
@@ -53,7 +53,6 @@ My vague goal for this project is to facilitate an easy way to experiment with t
 Cool stuff I'd like to try:
 
 - Displaying form elements via Prolog scripts for easy input/output to take advantage of persistence
-	- See the [Guestbook Demo](https://prolog.run/id/guestbook:test?ask=app%3Asigned%28Time%2C+User%2C+Msg%29) for a taste of what it could become.
 - Support for rendering output to an alternative protocol like Gemini
 - Using prolog.run as the dynamic backend of a statically deployed site
 

@@ -8,7 +8,7 @@ import plFmt from "tau-prolog/modules/format";
 import { betterJSON } from "./modules/json";
 import { transactions, linkedModules } from "./modules/tx";
 import { fetchModule } from "./modules/fetch";
-import { dumpModule } from "./prolog-do";
+import { engineModule } from "./modules/engine";
 
 plLists(pl);
 plChrs(pl);
@@ -17,31 +17,27 @@ plRand(pl);
 plStats(pl);
 plFmt(pl);
 betterJSON(pl);
+engineModule(pl);
 transactions(pl);
 linkedModules(pl);
 fetchModule(pl);
 
+export const DEFAULT_MODULES = ["lists", "js", "format", "charsio", "engine"];
+export const SYSTEM_MODULES = ["system", "engine"];
 // Heavily inspired by yarn/berry
-
-export interface Parent {
-	linkApp(id: string): Promise<pl.type.Module | undefined>;
-}
 
 export class Prolog {
 	public session: pl.type.Session;
-	public parent: Parent;
+	public parent: pl.Pengine;
 	private deferred: Promise<void>[] = [];
 
-	public constructor(source?: string, parent?: Parent) {
+	public constructor(source?: string, parent?: pl.Pengine) {
 		this.parent = parent!; // TODO
 		this.session = pl.create();
 		this.session.ctrl = this;
-		this.session.consult(`
-			:- use_module(library(lists)).
-			:- use_module(library(js)).
-			:- use_module(library(format)).
-			:- use_module(library(charsio)).
-		`);
+		this.session.consult(DEFAULT_MODULES.
+			map(x => `:- use_module(library(${x})).`).
+			join("\n"));
 		if (source) {
 			this.consult(source);
 			// this.session.consult(source);
@@ -165,10 +161,11 @@ export function newStream(alias: string, onput?: (text: string, pos: number) => 
 }
 
 export class Query {
-	public thread: pl.type.Thread;
-	public ask?: string;
+	public readonly thread: pl.type.Thread;
+	public readonly ask?: string;
+	public readonly id = crypto.randomUUID();
 	
-	private consultErr?: pl.type.Term<number, string>;
+	private consultErr?: pl.type.Term<1, "throw/1">;
 	private outputBuf = "";
 	private stream: Stream;
 
@@ -208,7 +205,7 @@ export class Query {
 
 	public async* answer(): AsyncGenerator<[pl.type.Term<number, string>,  pl.Answer], void, unknown> {
 		if (this.consultErr) {
-			throw this.consultErr;
+			throw withErrorContext(this.consultErr, functor("file", "src_text"));
 		}
 		while (true) {
 			const answer = await this.next();
@@ -232,6 +229,10 @@ export class Query {
 				throw answer;
 			}
 		}
+	}
+
+	public stop() {
+		this.thread.throw_error(atom("stop"));
 	}
 
 	public output(): string {
@@ -279,6 +280,14 @@ export function makeError(kind: string, detail?: any, context?: any): pl.type.Te
 		term.args.push(ctx);
 	}
 	return term;
+}
+
+export function withErrorContext(error: pl.type.Term<2, "error/2">|pl.type.Term<1, "throw/1">, context: pl.type.Term<number, string>): pl.type.Term<2, "error/2"> {
+	const err = pl.type.is_error(error) ? error.args[0] : error;
+	if (pl.type.is_term(err) && pl.type.is_list(err.args[1])) {
+		return new pl.type.Term("error", [error.args[0], makeList([context], err.args[1])]);
+	}
+	return new pl.type.Term("error", [error.args[0], makeList([context, error.args[1]])]);
 }
 
 export function toProlog(x: any): pl.type.Value {

@@ -1,7 +1,7 @@
 import { HTMLResponse } from "@worker-tools/html";
 import pl from "tau-prolog";
 import { Env } from ".";
-import { functor, isEmpty, makeError, makeList, newStream, Prolog, Query } from "./prolog";
+import { functor, isEmpty, makeError, makeList, newStream, Prolog, Query, SYSTEM_MODULES, withErrorContext } from "./prolog";
 import { Store } from "./unholy";
 import { renderOutput } from "./views/result";
 
@@ -28,12 +28,16 @@ export class PrologDO {
 	// packages linked to other DO's state
 	links: Record<string, DurableObjectStub> = {}; // module → ApplicationDO stub
 
+	// currently running queries
+	queries: Map<string, Query> = new Map();
+
 	// persistence:
 	// prolog-format dump of all predicates (record: module → program)
 	prog: Store<string>;
 	// tx state
 	txmeta: Store<TXMeta>;
 
+	// IPC:
 	sockets: Map<string, WebSocket> = new Map(); // socket ID → WebSocket
 	onmessage?: (id: string, from: string, msg: any) => void;
 
@@ -205,7 +209,7 @@ export class PrologDO {
 
 		// use_module/1
 		for (const dep of Object.keys(mod.modules)) {
-			if (dep == "system") { continue; }
+			if (SYSTEM_MODULES.includes(dep)) { continue; }
 			if (this.links[dep]) {
 				prog += `:- use_module(application(${dep})).\n`;	
 			} else {
@@ -242,6 +246,7 @@ export class PrologDO {
 
 	async run(prog: string | pl.type.State[], chunk?: number, throws = false): Promise<[Query, [pl.type.Term<number, string>, pl.type.Substitution|pl.type.Term<1, "throw/1">][]]> {
 		const query = new Query(this.pl.session, prog);
+		this.queries.set(query.id, query);
 		const answers = query.answer();
 		const results: [pl.type.Term<number, string>, pl.type.Substitution|pl.type.Term<1, "throw/1">][] = [];
 		for await (const [goal, answer] of answers) {
@@ -263,6 +268,9 @@ export class PrologDO {
 		if (tx) {
 			this.dirty = true;
 			await this.transact(tx)
+		}
+		if (!query.more()) {
+			this.queries.delete(query.id);
 		}
 		await this.save();
 		return [query, results];
@@ -386,6 +394,23 @@ export class PrologDO {
 		// return prologResponse(this.dumpModule(this.pl.session.modules.user, name));
 	}
 
+	stop(id?: string) {
+		if (!id) {
+			for (const [id, query] of this.queries) {
+				query.stop();
+				this.queries.delete(id);
+			}
+			return;
+		}
+
+		const query = this.queries.get(id);
+		if (!query) { 
+			return;
+		}
+		query.stop();
+		this.queries.delete(id);
+	}
+
 	async linkApp(appID: string): Promise<pl.type.Module | undefined> {
 		if (this.links[appID] && this.pl.session.modules[appID]) {
 			this.gossip(appID);
@@ -444,7 +469,7 @@ export class PrologDO {
 		const result = await link.fetch(update);
 		const prog = await result.text();
 		if (!result.ok) {
-			throw makeError("consult_app_error", result.status);
+			throw makeError("use_module_application", functor("http_status", result.status), functor("application", appID));
 		}
 		// console.log("app prog for", appID, "::", prog);
 		return await this._consultApp(appID, prog);
@@ -458,9 +483,8 @@ export class PrologDO {
 			reconsult: true,
 			url: false,
 			html: false,
-			error: function(err: unknown) {
-				console.error("invalid app text:", prog);
-				throw makeError("consult_error", err, functor("application", appID));
+			error: function(err: pl.type.Term<1, "throw/1">) {
+				throw withErrorContext(err, functor("consult", functor("application", appID)));
 			}
 		});
 		return this.pl.session.modules[appID];

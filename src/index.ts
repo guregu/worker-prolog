@@ -140,6 +140,9 @@ async function handleWeb(env: Env, request: Request, app: string, id: string, st
 }
 
 function pengineStub(env: Env, app = DEFAULT_APPLICATION, id = crypto.randomUUID()): [string, DurableObjectStub] {
+	if (id === "" || id === "_") {
+		id = crypto.randomUUID();
+	}
 	const pid = env.PROLOG_DO.idFromName(id);
 	return [id, env.PROLOG_DO.get(pid)];
 }
