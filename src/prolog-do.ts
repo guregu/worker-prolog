@@ -70,9 +70,9 @@ export class PrologDO {
 	async load(): Promise<Prolog> {
 		const prolog = new Prolog(undefined, this);
 
-		const prog = await this.prog.record(); // Record<module, program>
-		for (const [_modID, text] of Object.entries(prog)) {
-			// console.log("[LOAD]", modID, "text: ===\n", text);
+		const prog = await this.prog.record(`tx${this.txid}`); // Record<module, program>
+		for (const [modID, text] of Object.entries(prog)) {
+			// console.log("[LOAD]",this.id, this.txid, modID, "text: ===\n", text);
 			prolog.session.consult(text, {
 				session: prolog.session,
 				reconsult: true,
@@ -103,8 +103,9 @@ export class PrologDO {
 			return;
 		}
 
-		// this.state.blockConcurrencyWhile(async () => {
+		await this.state.blockConcurrencyWhile(async () => {
 			const txid = ++this.txid;
+			console.log("NEW TXID:", txid);
 			this.dirty = false;
 			this.lastmod = Date.now();
 			const progs = this.dumpLocal(exclude);
@@ -117,7 +118,7 @@ export class PrologDO {
 				})
 			]);
 			this.dirty = false;
-		// })
+		})
 	}
 
 	dump(): string {
@@ -487,7 +488,9 @@ export class PrologDO {
 				throw withErrorContext(err, functor("consult", functor("application", appID)));
 			}
 		});
-		return this.pl.session.modules[appID];
+		const mod = this.pl.session.modules[appID];
+		mod.is_library = true;
+		return mod;
 	}
 
 	async handleSession(id: string, websocket: WebSocket, from: string) {

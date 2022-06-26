@@ -338,7 +338,7 @@ declare module 'tau-prolog' {
 		  public /*readonly*/ meta_predicates: Record<string, pl.type.Term<number, string>>;
 
 
-		  public readonly is_library: boolean;
+		  public /*readonly*/ is_library: boolean;
 
 		  public readonly rules: Record<string, Rule[]>;
   

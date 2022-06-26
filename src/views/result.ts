@@ -2,10 +2,11 @@ import { HTML, html } from "@worker-tools/html";
 import { PengineResponse } from "../response";
 
 export function renderResult(result: PengineResponse, omitOutput = false): HTML {
+	const date = new Date(); // TODO lolz
 	const query_time = result?.time ?? result?.answer?.time ?? result?.data?.time;
 	return html`
 	<fieldset class="answer" data-ask="${result.ask}">
-		<legend><span>${eventEmoji(result)} ${new Date().toLocaleTimeString()} ${(query_time && query_time > 0) ? html`<small>${query_time} seconds</small>` : null}</span></legend>
+		<legend><span>${eventEmoji(result)} ${renderTimestamp(date)} ${renderDuration(query_time)}</span></legend>
 		<p class="ask"><a href="#src_text" onclick="return setAsk(decodeURIComponent('${encodeURIComponent(result.ask ?? '')}'));">${result.ask}</a></p>
 		<blockquote class="output">${result?.output}</blockquote>
 		${renderAnswersTable(result)}
@@ -20,6 +21,13 @@ export function renderOutput(text: string): HTML {
 	</fieldset>`;
 }
 
+export function renderQuery(text: string): HTML {
+	return html`
+	<fieldset class="answer">
+		<legend><span>🤔 ${new Date().toLocaleTimeString()}</span></legend>
+		<blockquote class="output">${text}</blockquote>
+	</fieldset>`;
+}
 
 export function renderDescription(result: PengineResponse): string {
 	const emoji = eventEmoji(result);
@@ -57,11 +65,13 @@ function eventEmoji(result: PengineResponse): string {
 	case "error":
 		return "😵";
 	case "create":
-		return "✨";
+		return "🤔"; // ✨
 	case "destroy":
 		return "💥";
 	case "stop":
 		return "🛑";
+	// case "query": // worker-prolog original
+	// 	return "🤔";
 	default:
 		return "❓";
 	}
@@ -175,7 +185,6 @@ function renderTerm(x: any): HTML {
 	}
 }
 
-
 function renderTermText(x: any): string {
 	switch (typeof x) {
 	case "number":
@@ -209,4 +218,15 @@ function renderTermText(x: any): string {
 		// hail mary
 		return `??? ${x}`;
 	}
+}
+
+function renderTimestamp(d: Date): HTML {
+	return html`<time class="hh-mm" datetime="${d.toISOString()}">${d.toLocaleTimeString()}</time>`
+}
+
+function renderDuration(secs: number): HTML {
+	if (secs <= 0) {
+		return html``;
+	}
+	return html`<time class="duration" datetime="P${secs}S">${secs} seconds</time>`
 }

@@ -355,7 +355,7 @@ export class PengineDO extends PrologDO {
 		const resp = {
 			event: "create",
 			id: id,
-			slave_limit: 100000
+			slave_limit: ARBITRARY_HIGH_NUMBER,
 		};
 		return new JSONResponse(resp);
 	}

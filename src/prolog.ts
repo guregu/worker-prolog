@@ -160,6 +160,7 @@ export function newStream(alias: string, onput?: (text: string, pos: number) => 
 	return new pl.type.Stream(stream, "append", alias, "text", false, "reset");
 }
 
+export const ID_EPOCH = 1656164000000;
 export class Query {
 	public readonly thread: pl.type.Thread;
 	public readonly ask?: string;
@@ -170,6 +171,12 @@ export class Query {
 	private stream: Stream;
 
 	public constructor(sesh: pl.type.Session, ask: string | pl.type.State[]) {
+		const a = new Uint8Array(1);
+		crypto.getRandomValues(a);
+		const now = new Date();
+		// attempting to generate a prolog-friendly query ID
+		this.id = `${(now.getHours()+10).toString(36)}${(now.getTime()-ID_EPOCH).toString(36)}${a[0].toString(36)}`;
+
 		this.thread = new pl.type.Thread(sesh);
 
 		this.stream = new Stream(

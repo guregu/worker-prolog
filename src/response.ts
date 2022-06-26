@@ -7,7 +7,8 @@ import { functor, makeList, Prolog, toProlog } from "./prolog";
 
 export interface PengineResponse {
 	// actual Pengines API
-	event: "create" | "destroy" | "success" | "failure" | "error" | "stop" | "ping",
+	event: "create" | "destroy" | "success" | "failure" | "error" | "stop" | "ping"| 
+		/* originals: */ "query",
 	id: string,
 	data?: PengineResponse | any,
 	more?: boolean,
