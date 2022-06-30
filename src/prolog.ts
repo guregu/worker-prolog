@@ -9,6 +9,7 @@ import { betterJSON } from "./modules/json";
 import { transactions, linkedModules } from "./modules/tx";
 import { fetchModule } from "./modules/fetch";
 import { engineModule } from "./modules/engine";
+import { QueryJob, Solution } from "./prolog-do";
 
 plLists(pl);
 plChrs(pl);
@@ -40,7 +41,6 @@ export class Prolog {
 			join("\n"));
 		if (source) {
 			this.consult(source);
-			// this.session.consult(source);
 		}
 	}
 
@@ -165,16 +165,21 @@ export class Query {
 	public readonly thread: pl.type.Thread;
 	public readonly ask?: string;
 	public readonly id = crypto.randomUUID();
-	
+	public readonly date = Date.now();
+	public job?: QueryJob; // TODO: reorganize
+	public results: Solution[] = [];
+
 	private consultErr?: pl.type.Term<1, "throw/1">;
+	private outputs: string[] = [];
 	private outputBuf = "";
 	private stream: Stream;
 
 	public constructor(sesh: pl.type.Session, ask: string | pl.type.State[]) {
+		// attempting to generate a prolog-friendly query ID
+		// [hour:2] [now-epoch] [random:1]
 		const a = new Uint8Array(1);
 		crypto.getRandomValues(a);
 		const now = new Date();
-		// attempting to generate a prolog-friendly query ID
 		this.id = `${(now.getHours()+10).toString(36)}${(now.getTime()-ID_EPOCH).toString(36)}${a[0].toString(36)}`;
 
 		this.thread = new pl.type.Thread(sesh);
@@ -185,7 +190,12 @@ export class Query {
 				return sesh.streams["stdout"]?.stream.put(text, pos) ?? true;
 			},
 			(buf: string) => {
-				return sesh.streams["stdout"]?.stream.flush() ?? true;
+				if (this.outputBuf.length > 0) {
+					this.outputs.push(this.outputBuf);
+				}
+				sesh.streams["stdout"]?.stream.flush();
+				this.outputBuf = "";
+				return true;
 			},
 		)
 		this.thread.set_current_output(new pl.type.Stream(this.stream, "append", "user", "text", false, "reset"));
@@ -212,7 +222,8 @@ export class Query {
 
 	public async* answer(): AsyncGenerator<[pl.type.Term<number, string>,  pl.Answer], void, unknown> {
 		if (this.consultErr) {
-			throw withErrorContext(this.consultErr, functor("file", "src_text"));
+			yield [FALSE, functor("throw", withErrorContext(this.consultErr, functor("file", "src_text"))) as pl.type.Term<1, "throw/1">];
+			return;
 		}
 		while (true) {
 			const answer = await this.next();
@@ -224,6 +235,7 @@ export class Query {
 				pt = pt.parent;
 			}
 			const goal = pt!.goal;
+			this.results.push([goal, answer]);
 			yield [goal, answer];
 		}
 	}
@@ -244,7 +256,7 @@ export class Query {
 
 	public output(): string {
 		this.stream.flush();
-		return this.outputBuf;
+		return this.outputs.join("");
 	}
 
 	public tx(): pl.type.Term<number, string>[] | undefined {
@@ -252,6 +264,7 @@ export class Query {
 	}
 
 	public more(): boolean {
+		console.log("more? ", this.thread.points);
 		return this.thread.points.length > 0;
 	}
 }
@@ -288,6 +301,8 @@ export function makeError(kind: string, detail?: any, context?: any): pl.type.Te
 	}
 	return term;
 }
+
+const FALSE = atom("false");
 
 export function withErrorContext(error: pl.type.Term<2, "error/2">|pl.type.Term<1, "throw/1">, context: pl.type.Term<number, string>): pl.type.Term<2, "error/2"> {
 	const err = pl.type.is_error(error) ? error.args[0] : error;

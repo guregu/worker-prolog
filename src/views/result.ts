@@ -1,5 +1,5 @@
 import { HTML, html } from "@worker-tools/html";
-import { PengineResponse } from "../response";
+import { PengineResponse, QueryInfo } from "../response";
 
 export function renderResult(result: PengineResponse, omitOutput = false): HTML {
 	const date = new Date(); // TODO lolz
@@ -21,11 +21,21 @@ export function renderOutput(text: string): HTML {
 	</fieldset>`;
 }
 
-export function renderQuery(text: string): HTML {
+export function renderQuery(query: QueryInfo, result?: PengineResponse): HTML {
 	return html`
-	<fieldset class="answer">
-		<legend><span>🤔 ${new Date().toLocaleTimeString()}</span></legend>
-		<blockquote class="output">${text}</blockquote>
+	<fieldset class="answer" id="query-${query.id}" ${result?.ask && html`data-ask="${result?.ask}"`}>
+		<legend><span>${(!result || result?.more === true) ? "🤔" : eventEmoji(result)} ${renderTimestamp(new Date(query.date))}</span></legend>
+		<p class="ask">${query.ask}</p>
+		<blockquote class="output">${query.output}</blockquote>
+		${renderAnswersTable(result)}
+		${result?.more === true && html`
+			<menu>
+				<li><button onclick="return send_next('${query.id}', 1);">▶️ Next</button></li>
+				<li><button onclick="return send_next('${query.id}');">⏭️ All</button></li>
+				<li><button onclick="return send_stop('${query.id}');">🔪 Kill</button></li>
+				<!-- <li><button onclick="return send_save('${query.id}');">💾 Save</button></li> -->
+			</menu>
+		`}
 	</fieldset>`;
 }
 
@@ -225,7 +235,7 @@ function renderTimestamp(d: Date): HTML {
 }
 
 function renderDuration(secs: number): HTML {
-	if (secs <= 0) {
+	if (!secs || secs <= 0) {
 		return html``;
 	}
 	return html`<time class="duration" datetime="P${secs}S">${secs} seconds</time>`

@@ -2,11 +2,11 @@ import pl, { ErrorInfo } from "tau-prolog";
 import { JSONResponse } from "@worker-tools/json-fetch";
 
 import { Prolog, makeError, functor, toProlog } from "./prolog";
-import { PrologDO } from "./prolog-do";
+import { PrologDO, QueryJob } from "./prolog-do";
 import { Store } from "./unholy";
-import { PengineResponse, formatResponse, prologResponse, serializeTerm } from "./response";
+import { PengineResponse, formatResponse, prologResponse, serializeTerm, QueryInfo } from "./response";
 import { Env } from ".";
-import { renderResult } from "./views/result";
+import { renderQuery, renderResult } from "./views/result";
 import { HTMLResponse } from "@worker-tools/html";
 
 export const DEFAULT_APPLICATION = "pengine_sandbox";
@@ -18,52 +18,57 @@ export type Command = "create" | "destroy" | "ask" | "next" | "stop" | "ping";
 export type Event = "create" | "destroy" | "success" | "failure" | "error" | "stop" | "ping";
 
 export interface PengineRequest {
-	id: string,
-	application: string,
-	ask: string,
-	template: pl.type.Value,
-	src_text: string,
-	src_url: string,
-	chunk: number,
-	format: Format,
-	create: boolean,
-	destroy: boolean,
-	stop: boolean,
-	next: boolean,
+	id: string;
+	query_id: string;
+	application: string;
+	ask: string;
+	template: pl.type.Value;
+	src_text: string;
+	src_url: string;
+	chunk: number;
+	format: Format;
+	create: boolean;
+	destroy: boolean;
+	stop: boolean;
+	next: boolean;
 	cmd: Command;
 }
 
 export interface PengineReply {
-	event: Event,
-	id: string,
-	lifecycle?: "create" | "destroy" | "full",
-	output?: string,
+	event: Event;
+	id: string;
+	lifecycle?: "create" | "destroy" | "full";
+	output?: string;
 
-	ask?: string,
-	results?: pl.type.Value[],
-	more?: boolean,
-	projection?: pl.type.Term<number, string>[], // atoms
-	time?: number, // time taken
+	query?: QueryJob;
+	ask?: string;
+	results?: pl.type.Value[];
+	more?: boolean;
+	projection?: pl.type.Term<number, string>[]; // atoms
+	time?: number; // time taken
 	
-	error?: pl.type.Value, // value from throw/1
-	links?: pl.type.Substitution[],
+	error?: pl.type.Value; // value from throw/1
+	links?: pl.type.Substitution[];
 	
-	meta?: PengineMetadata,
+	meta?: PengineMetadata;
+	state?: {
+		queries: Record<string, QueryInfo>;
+	}
 	debug?: {
-		dump?: Record<string, string>,
-		error?: ErrorInfo,
-	},
-	slave_limit?: number,
+		dump?: Record<string, string>;
+		error?: ErrorInfo;
+	};
+	slave_limit?: number;
 }
 
 export interface PengineMetadata {
-	src_text?: string,
-	src_urls: string[],
-	title: string,
+	src_text?: string;
+	src_urls: string[];
+	title: string;
 
-	application?: string,
-	app_src?: string,
-	listeners?: string[]
+	application?: string;
+	app_src?: string;
+	listeners?: string[];
 }
 
 export class PengineDO extends PrologDO {
@@ -83,6 +88,7 @@ export class PengineDO extends PrologDO {
 			const msg = JSON.parse(raw) as SocketMessage;
 			this.handleMessage(id, from, msg);
 		}
+		this.onquery = this.broadcastQuery;
 	}
 
 	async fetch(request: Request) {
@@ -141,7 +147,7 @@ export class PengineDO extends PrologDO {
 
 	async exec(id: string, req: Partial<PengineRequest>, start: number, persist: boolean): Promise<PengineReply> {
 		const meta: PengineMetadata = (await this.meta.get()) ?? {src_urls: [], title: ""};
-		const [parentReq, next] = await this.loadState();
+		const [parentReq, _next] = await this.loadState();
 
 		if (req.stop) {
 			console.log("TODO: stop", req);	
@@ -238,6 +244,7 @@ export class PengineDO extends PrologDO {
 				id: id,
 				slave_limit: ARBITRARY_HIGH_NUMBER,
 				meta: meta,
+				state: this.engineState(), // TODO
 			};
 		}
 
@@ -245,7 +252,12 @@ export class PengineDO extends PrologDO {
 		this.req = req;
 
 		const chunk = req.chunk ?? this.req?.chunk;
-		const [query, answers] = await this.run(req.ask ?? next, chunk, false);
+		const ask = (req.query_id && req.next) ? this.queries.get(req.query_id)?.query : req.ask;
+		if (!ask) {
+			throw "no ask??";
+		}
+		const [query, answers] = await this.run(ask, chunk, false);
+		const job = query.job ?? this.queries.get(query.id); // TODO: ugly
 
 		const results: pl.type.Value[] = [];
 		const links: pl.type.Substitution[] = [];
@@ -260,27 +272,32 @@ export class PengineDO extends PrologDO {
 					// await this.deleteState(query.id);
 					return {
 						event: "stop",
-						id: `${id}_${query.id}`,
+						id: id,
+						// query_id: `${query.id}`, // TODO: need to disambiguate query ID vs pengines ID within pengines API...
+						query: job,
 						meta: meta,
+						more: false,
 						output: query.output(),
 						debug: PENGINES_DEBUG ? {dump: this.dumpAll()} : undefined,
+						state: this.engineState()
 					};
 				}
 				const event: PengineReply = {
 					event: "error",
 					id: id,
+					query: job,
 					error: ball,
 					meta: meta,
+					more: false,
 					output: query.output(),
 					debug: PENGINES_DEBUG ? {dump: this.dumpAll()} : undefined,
+					state: this.engineState()
 				};
 				return event;
 			} else if (pl.type.is_substitution(answer)) {
 				if (!queryGoal && answer.links) {
 					queryGoal = goal;
-					projection = Object.keys(answer.links).
-						filter(x => !x.startsWith("_")).
-						map(x => new pl.type.Term(x, []));
+					projection = projectionOf(answer);
 				}
 				const term = tmpl.apply(answer);
 				results.push(term);
@@ -308,30 +325,35 @@ export class PengineDO extends PrologDO {
 				event: "failure",
 				id: id,
 				time: time,
+				query: job,
+				ask: req.ask,
+				more: false,
 				output: output,
 				meta: meta,
-				ask: req.ask,
 				debug: debug,
+				state: this.engineState(), // TODO
 			};
 		} else {
 			event = {
 				event: "success",
-				results: results,
-				links: links, // TODO: fix this
 				id: id,
-				more: more,
+				query: job,
+				ask: req.ask,
+				results: results,
+				links: links,
+				more: query.more(),
 				projection: projection,
 				time: time,
 				slave_limit: ARBITRARY_HIGH_NUMBER,
 				output: output,
 				meta: meta,
-				ask: req.ask,
 				debug: debug,
+				state: this.engineState(), // TODO
 			};
 		}
 
 
-		if (!more && req.destroy) {
+		if (!query.more() && req.destroy) {
 			event.lifecycle = "destroy";
 		}
 
@@ -414,23 +436,22 @@ export class PengineDO extends PrologDO {
 				id: id,
 				error: ball as pl.type.Term<number, string>,
 			})
-			if (format == "json") {
-
-				const resp = {
-					"data": serializeTerm(ball, this.pl),
-					"event": "error",
-					"id": id,
-				};
-				return new JSONResponse(resp);
-			}
-			const idTerm = new pl.type.Term(id, []);
-			const msg = new pl.type.Term("error", [idTerm, ball]);
-			const text = msg.toString({session: this.pl.session, quoted: true, ignore_ops: false }) + ".\n";
-			return prologResponse(text);
 		}
 	}
 
+	engineState() {
+		// state: {queries: Object.fromEntries(Array.from(this.queries.entries()).map(([id, q]) => [id, q.info()]))}
+		const queries: Record<string, QueryInfo> = {};
+		for (const [k, v] of this.queries) {
+			queries[k] = v.info();
+		}
+		return {
+			queries: queries
+		};
+	}
+
 	async handleMessage(id: string, from: string, msg: SocketMessage) {
+		const job = msg.id ? this.queries.get(msg.id) : undefined;
 		switch (msg.cmd) {
 		case "hello":
 			break;
@@ -441,9 +462,19 @@ export class PengineDO extends PrologDO {
 
 			try {
 				const result = await this.exec(id, req, Date.now(), true);
-				const resp = await formatResponse("json", result, this.pl).json();
-				const html = await (new HTMLResponse(renderResult(resp as PengineResponse, true))).text();
+				if (result.query?.query.results) {
+					result.results = result.query?.query.results.map(([term, _]) => term);
+				}
+				const resp = await formatResponse("json", result, this.pl).json() as PengineResponse;
+				const html = await (new HTMLResponse(renderResult(resp, true))).text();
 				this.broadcast("result:" + html);
+
+				// TODO: DRY
+				{
+					const resp = await formatResponse("json", result, this.pl).json() as PengineResponse;
+					const html = await (new HTMLResponse(renderQuery(resp.query!, resp))).text();
+					this.broadcast(`query:${resp.query!.id}:${html}`);
+				}
 			} catch(err) {
 				if (err instanceof Error) {
 					throw(err);
@@ -457,8 +488,51 @@ export class PengineDO extends PrologDO {
 				};
 				const html = await (new HTMLResponse(renderResult(resp, true))).text();
 				this.broadcast("result:" + html);
+				break;
 			}
+		case "next":
+			// TODO:
+			if (!job) {
+				console.warn("no job", msg.id);
+				break;
+			}
+			const result = await this.exec(id, {cmd: "next", id: id, query_id: msg.id, next: true, chunk: msg.chunk}, Date.now(), true);
+			if (result.query?.query.results) {
+				console.log("replacin' results", result.query.query.results);
+				result.results = result.query?.query.results.map(([term, _]) => term);
+				if (result.results.length > 0 && result.event == "failure") {
+					result.event = "success";
+					result.more = false;
+
+					const [_, sub] = result.query.query.results[0];
+					if (pl.type.is_substitution(sub)) {
+						result.projection = projectionOf(sub);
+					}
+				}
+			}
+			const resp = await formatResponse("json", result, this.pl).json() as PengineResponse;
+			const html = await (new HTMLResponse(renderQuery(resp.query!, resp))).text();
+			this.broadcast(`query:${job.query.id}:${html}`);
+			// const got = await this.run(job.query, msg.chunk, true);
+			// console.log("next got", got);
+			break;
+		case "stop":
+			if (!job) {
+				console.warn("no job", msg.id);
+				break;
+			}
+			job.query.stop();
+			break;
+		// case "save":
+		// 	break;
 		}
+	}
+
+	async broadcastQuery(job: QueryJob, results?: [pl.type.Term<number, string>, pl.type.Substitution|pl.type.Term<1, "throw/1">][]) {
+		// const html = await (new HTMLResponse(
+		// 	renderQuery(job.info())
+		// )).text();
+		// this.broadcast(`query:${job.query.id}:${html}`);
 	}
 }
 
@@ -585,7 +659,15 @@ async function parseAsk(sesh: Prolog, ask: string): Promise<Partial<PengineReque
 	return result;
 }
 
+function projectionOf(sub: pl.type.Substitution) {
+	return Object.keys(sub.links).
+						filter(x => !x.startsWith("_")).
+						map(x => new pl.type.Term(x, []));
+}
+
 interface SocketMessage {
-	cmd: "hello" | "query",
-	query?: PengineRequest
+	cmd: "hello" | "query" | "next" | "stop";
+	id?: string;
+	query?: PengineRequest;
+	chunk?: number;
 }

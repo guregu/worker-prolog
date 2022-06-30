@@ -1,7 +1,7 @@
 import pl from "tau-prolog";
 //import * as prolog from "tau-prolog";
 
-// keeps track of mutations within thread
+// provides some "system"/"os"-ish predicates for workers
 export function engineModule(pl2: typeof pl) {
 	new pl2.type.Module("engine", predicates, ["self/1", "stop/0", "stop/1", "current_query/1", "sleep/1"]);
 }

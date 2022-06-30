@@ -1,36 +1,51 @@
 import pl, { ErrorInfo } from "tau-prolog";
 import { JSONResponse } from "@worker-tools/json-fetch";
-import { ARBITRARY_HIGH_NUMBER, Format, PengineMetadata, PengineReply, PENGINES_DEBUG } from "./pengines";
+import { ARBITRARY_HIGH_NUMBER, Format, Event, PengineMetadata, PengineReply, PENGINES_DEBUG } from "./pengines";
 import { functor, makeList, Prolog, toProlog } from "./prolog";
+import { Solution } from "./prolog-do";
 
 /* eslint-disable no-case-declarations */
 
 export interface PengineResponse {
 	// actual Pengines API
-	event: "create" | "destroy" | "success" | "failure" | "error" | "stop" | "ping"| 
-		/* originals: */ "query",
-	id: string,
-	data?: PengineResponse | any,
-	more?: boolean,
-	projection?: string[],
-	time?: number, // time taken
-	code?: string, // error code
-	slave_limit?: number,
-	answer?: PengineResponse,
+	event: Event;
+	id: string;
+	data?: PengineResponse | any;
+	more?: boolean;
+	projection?: string[];
+	time?: number; // time taken
+	code?: string; // error code
+	slave_limit?: number;
+	answer?: PengineResponse;
 
 	// extras
-	ask?: string,
-	error?: ErrorInfo,
-	operators?: Map<number, Map<string, string[]>>, // priority (number) → op ("fx" "yfx" etc) → names (TODO: unused)
-	output?: string,
-	meta?: PengineMetadata,
+	ask?: string;
+	error?: ErrorInfo;
+	query?: QueryInfo;
+	// operators?: Map<number; Map<string; string[]>>; // priority (number) → op ("fx" "yfx" etc) → names (TODO: unused)
+	output?: string;
+	meta?: PengineMetadata;
 	debug?: {
-		dump?: Record<string, string>,
-	},
+		dump?: Record<string, string>;
+	};
+	state?: {
+		queries: Record<string, QueryInfo>;
+	}
 	rights?: {
-		edit: boolean,
-	},
+		edit: boolean;
+	};
 }
+
+export interface QueryInfo {
+	id: string;
+	date: number;
+	ask: string;
+	// results: Solution[];
+	output: string;
+	steps: number;
+	time: number;
+	warnings: string[];
+};
 
 export interface ErrorEvent extends PengineResponse {
 	event: "error",
@@ -38,13 +53,13 @@ export interface ErrorEvent extends PengineResponse {
 }
 
 export interface SuccessEvent extends PengineResponse {
-	event: "success",
-	more: boolean,
-	projection: string[],
-	time: number,
-	data: pl.type.Value[],
-	links: pl.type.Substitution[],
-	slave_limit?: number,
+	event: "success";
+	more: boolean;
+	projection: string[];
+	time: number;
+	data: pl.type.Value[];
+	links: pl.type.Substitution[];
+	slave_limit?: number;
 }
 
 function formatJSON(reply: PengineReply, prolog?: Prolog): Response {
@@ -98,6 +113,7 @@ function formatJSON(reply: PengineReply, prolog?: Prolog): Response {
 			meta: reply.meta,
 			debug: reply.debug,
 			slave_limit: reply.slave_limit,
+			state: reply.state,
 		});
 	case "destroy":
 		return new JSONResponse({
@@ -109,17 +125,19 @@ function formatJSON(reply: PengineReply, prolog?: Prolog): Response {
 		});
 
 	case "success":
-		return new JSONResponse(wrap(makeJSONAnswer(reply, prolog)));
 	case "failure":
-		return new JSONResponse(wrap({
-			event: "failure",
-			id: reply.id,
-			ask: reply.ask,
-			time: reply.time,
-			output: reply.output,
-			meta: reply.meta,
-			debug: reply.debug,
-		}));
+		return new JSONResponse(wrap(makeJSONAnswer(reply, prolog)));
+	// case "failure":
+	// 	return new JSONResponse(wrap({
+	// 		event: "failure",
+	// 		id: reply.id,
+	// 		ask: reply.ask,
+	// 		time: reply.time,
+	// 		output: reply.output,
+	// 		meta: reply.meta,
+	// 		debug: reply.debug,
+	// 		state: reply.state,
+	// 	}));
 	case "error":
 		const term = toProlog(reply.error);
 		let code;
@@ -138,20 +156,24 @@ function formatJSON(reply: PengineReply, prolog?: Prolog): Response {
 			data: serializeTerm(term),
 			time: reply.time,
 			slave_limit: ARBITRARY_HIGH_NUMBER,
+			query: reply.query?.info(),
 			output: reply.output,
 			meta: reply.meta,
 			ask: reply.ask,
 			debug: PENGINES_DEBUG ? debug : undefined,
 			code: code,
+			state: reply.state,
 		}))
 
 	case "stop":
 		return new JSONResponse(wrap({
 			event: "stop",
 			id: reply.id,
+			query: reply.query?.info(),
 			meta: reply.meta,
 			debug: reply.debug,
 			slave_limit: reply.slave_limit,
+			state: reply.state,
 		}));
 	// case "ping":
 	// 	return new JSONResponse(wrap({
@@ -199,6 +221,7 @@ function formatProlog(reply: PengineReply, prolog?: Prolog): Response {
 		break;
 	case "create":
 		wrap = (x: pl.type.Term<number, string>) => {
+			if (x.id === "create") { return x; }
 			return new pl.type.Term("create", [
 				// id
 				id,
@@ -219,7 +242,7 @@ function formatProlog(reply: PengineReply, prolog?: Prolog): Response {
 		break;
 	case "destroy":
 		wrap = (x: pl.type.Term<number, string>) => {
-			return new pl.type.Term("create", [
+			return new pl.type.Term("destroy", [
 				// id
 				id,
 				// data (list)
@@ -389,19 +412,35 @@ function makeJSONAnswer(answer: PengineReply, sesh?: Prolog): PengineResponse {
 			id: answer.id,
 			time: answer.time,
 			slave_limit: ARBITRARY_HIGH_NUMBER,
+			query: answer.query?.info(),
 			output: answer.output,
 			meta: answer.meta,
 			ask: answer.ask,
 			debug: answer.debug,
+			state: answer.state,
 		}
 	}
-	const data = answer.links!.map(function (link) {
-		const obj: Record<string, string | number | object | null> = {};
-		for (const key of Object.keys(link.links)) {
-			obj[key] = serializeTerm(link.links[key], sesh);
-		}
-		return obj;
-	});
+	let data;
+	if (answer.query?.query.results.length) {
+		data = answer.query?.query.results.map(([goal, subs]) => {
+			if (!pl.type.is_substitution(subs)) {
+				return undefined;
+			}
+			return Object.fromEntries(Object.entries(subs.links).map(([variable, value]) => {
+				return [variable, serializeTerm(value, sesh)]
+			}));
+		});
+	} else {
+		data = answer.links!.map(function (link) {
+			const obj: Record<string, string | number | object | null> = {};
+			for (const key of Object.keys(link.links)) {
+				obj[key] = serializeTerm(link.links[key], sesh);
+			}
+			return obj;
+		});
+	}
+	const queryInfo = answer.query?.info()
+
 	return {
 		event: "success",
 		data: data,
@@ -410,10 +449,12 @@ function makeJSONAnswer(answer: PengineReply, sesh?: Prolog): PengineResponse {
 		projection: answer.projection?.map(x => x.toJavaScript()) as string[],
 		time: answer.time,
 		slave_limit: ARBITRARY_HIGH_NUMBER,
+		query: queryInfo,
 		output: answer.output,
 		meta: answer.meta,
 		ask: answer.ask,
 		debug: answer.debug,
+		state: answer.state,
 	};
 }
 

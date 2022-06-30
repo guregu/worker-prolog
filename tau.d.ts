@@ -266,9 +266,9 @@ declare module 'tau-prolog' {
   
 		  public readonly epoch: number;
 		  public readonly session: Session;
-		  public readonly total_steps: Number;
-		  public readonly cpu_time: Number;
-		  public readonly cpu_time_last: Number;
+		  public readonly total_steps: number;
+		  public readonly cpu_time: number;
+		  public readonly cpu_time_last: number;
 		  public /*readonly*/ points: State[];
 		  public readonly debugger: boolean;
 		  public readonly debugger_states: [];

@@ -1,6 +1,6 @@
 import { html, HTML, unsafeHTML } from "@worker-tools/html";
-import { PengineResponse } from "../response";
-import { renderDescription, renderResult } from "./result";
+import { PengineResponse, QueryInfo } from "../response";
+import { renderDescription, renderQuery, renderResult } from "./result";
 import { socketJS, texteditJS } from "./scripts";
 import { favicon, indexStyle } from "./style";
 
@@ -18,6 +18,8 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 	const src_text = result?.meta?.src_text ?? result?.answer?.meta?.src_text ?? result?.data?.meta?.src_text;
 	const application = result?.meta?.application ?? result?.answer?.meta?.application ?? result?.data?.meta?.application;
 	const debug = result?.debug ?? result?.answer?.debug ?? result?.data?.debug;
+	const query = result?.query ?? result?.answer?.query ?? result?.data?.query;
+	const jobs = !!query; // TODO: ?
 	const id = result?.id || crypto.randomUUID();
 	if (result?.event == "create" && result?.answer) {
 		result = result.answer;
@@ -93,6 +95,13 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 					<datalist id="examples"></datalist>
 				</section>
 
+				<section id ="jobs">
+					<!-- ${jobs && renderQuery(query)} -->
+					${result?.state?.queries && Object.values(result.state.queries).map((q: QueryInfo) => {
+						return renderQuery(q);
+					})}
+				</section>
+
 				<section id="results">
 					${(!result || result.event == "create") && renderWelcome()}
 					${result && result.event !== "create" && renderResult(result)}
@@ -162,7 +171,7 @@ function send(event, ask, src_text, replace) {
 		askElem.value = ask;
 	}
 	if (replace) {
-		SRC_TEXT.value = value;
+		SRC_TEXT.value = src_text || "";
 		updateSpacer(SRC_TEXT);
 	}
 	var query = {
@@ -170,6 +179,7 @@ function send(event, ask, src_text, replace) {
 		src_text: src_text || document.getElementById("src_text").value || undefined,
 		src_url: document.getElementById("src_url")?.value || undefined,
 		application: "${application}",
+		chunk: 1,
 	};
 	var url = new URL(document.URL);
 	url.pathname = "/id/${application && html`${application}:`}${id}";
@@ -192,6 +202,24 @@ function send(event, ask, src_text, replace) {
 	return undefined;
 }
 
+function send_next(id, chunk) {
+	socket.send({cmd: "next", id: id, chunk: chunk});
+//	if (socket.ready()) {
+//		// TODO: show loading...
+//		QUERY_SUBMIT.value = "...";
+//		return false;
+//	}
+	return false;
+}
+
+function send_stop(id) {
+	socket.send({cmd: "stop", id: id});
+}
+
+function send_save(id) {
+	socket.send({cmd: "save", id: id});
+}
+
 function setAsk(txt) {
 	const ask = document.getElementById("ask");
 	ask.value = txt;
@@ -202,7 +230,8 @@ function setAsk(txt) {
 
 const socket = new Socket(location.host + "/pengine/?id=${id}", {cmd: "greetings"});
 
-socket.handle("result", function(msg) {
+// TODO
+socket.handle("_____result", function(msg) {
 	var box = document.getElementById("results");
 	if (box.querySelector("#welcome")) {
 		box.innerHTML = msg;
@@ -211,6 +240,21 @@ socket.handle("result", function(msg) {
 	}
 	QUERY_SUBMIT.value = "Query";
 	refreshExamples();
+});
+
+socket.handle("query", function(msg) {
+	const idx = msg.indexOf(":");
+	const id = msg.slice(0, idx);
+	const html = msg.slice(idx+1);
+
+	const elem = document.getElementById("query-" + id);
+	if (elem) {
+		elem.outerHTML = html;
+		return;
+	}
+
+	let box = document.getElementById("jobs");
+	box.insertAdjacentHTML("afterbegin", html);
 });
 
 socket.handle("src_text", function(txt) {

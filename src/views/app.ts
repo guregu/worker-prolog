@@ -44,6 +44,7 @@ export function renderApplication(app: Application, params: URLSearchParams): HT
 						list=examples>
 					-->
 					<input type="submit" value="Save">
+					<input type="submit" value="Delete">
 				</form>
 				<datalist id="examples"></datalist>
 			</section>

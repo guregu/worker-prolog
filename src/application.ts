@@ -7,9 +7,9 @@ import { Store } from "./unholy";
 import { prologResponse } from "./response";
 
 export interface Application {
-	id: string,
-	meta: PengineMetadata,
-	txid: number,
+	id: string;
+	meta: PengineMetadata;
+	txid: number;
 	listeners: string[];
 	dump?: Record<string, string>;
 	compiled: string;

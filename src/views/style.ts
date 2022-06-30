@@ -49,8 +49,8 @@ export const indexStyle = html`
 				position: sticky;
 				top: 0;
 				background: #f7f7f7b3;
-				backdrop-filter: blur(var(--frost-blur, 6px));
-				-webkit-backdrop-filter: blur(var(--frost-blur, 6px));
+				backdrop-filter: blur(6px);
+				-webkit-backdrop-filter: blur(6px);
 				margin: 0;
 				padding-left: 8px;
 				padding-right: 8px;
@@ -169,6 +169,19 @@ export const indexStyle = html`
 			text-decoration: underline;
 		}
 
+		.answer menu {
+			display: flex;
+			list-style: none;
+			padding-inline-start: 0;
+			margin-top: 0;
+			margin-bottom: 0;
+			column-gap: 0.3em;
+		}
+
+		/* .answer menu li {
+
+		} */
+
 		table.form {
 				width: 98%;
 		}
@@ -180,15 +193,15 @@ export const indexStyle = html`
 				color: crimson;
 		}
 
-		#results table {
+		.answer table {
 				margin: 1px;
 				border-collapse: collapse;
 		}
-		#results th, #results td {
+		.answer th, .answer td {
 				border: 1px solid lightgrey;
 				padding: 0.3em;
 		}
-		#results th {
+		.answer th {
 			background: #f4f4f4;
 		}
 

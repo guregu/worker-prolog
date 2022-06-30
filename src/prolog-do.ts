@@ -2,15 +2,42 @@ import { HTMLResponse } from "@worker-tools/html";
 import pl from "tau-prolog";
 import { Env } from ".";
 import { functor, isEmpty, makeError, makeList, newStream, Prolog, Query, SYSTEM_MODULES, withErrorContext } from "./prolog";
+import { QueryInfo } from "./response";
 import { Store } from "./unholy";
 import { renderOutput } from "./views/result";
 
 const TX_CHUNK_SIZE = 25;
 
+export type Solution = [pl.type.Term<number, string>, pl.type.Substitution|pl.type.Term<1, "throw/1">];
+
 export interface TXMeta {
 	id: string;
 	txid: number;
 	time: number;
+}
+
+export class QueryJob {
+	query: Query;
+	// TODO:
+	// creator: string; // user id
+
+	constructor(query: Query) {
+		this.query = query;
+		query.job = this; // TODO: cleaner
+	}
+
+	info(): QueryInfo {
+		return {
+			id: this.query.id,
+			date: this.query.date,
+			ask: this.query.ask || "",
+			// results: this.query.results,
+			output: this.query.output(),
+			steps: this.query.thread.total_steps,
+			time: this.query.thread.cpu_time,
+			warnings: this.query.thread.get_warnings(),
+		};
+	}
 }
 
 export class PrologDO {
@@ -29,7 +56,7 @@ export class PrologDO {
 	links: Record<string, DurableObjectStub> = {}; // module → ApplicationDO stub
 
 	// currently running queries
-	queries: Map<string, Query> = new Map();
+	queries: Map<string, QueryJob> = new Map();
 
 	// persistence:
 	// prolog-format dump of all predicates (record: module → program)
@@ -40,6 +67,7 @@ export class PrologDO {
 	// IPC:
 	sockets: Map<string, WebSocket> = new Map(); // socket ID → WebSocket
 	onmessage?: (id: string, from: string, msg: any) => void;
+	onquery?: (query: QueryJob, results: Solution[]) => void;
 
 	constructor(state: DurableObjectState, env: Env) {
 		this.state = state;
@@ -71,8 +99,8 @@ export class PrologDO {
 		const prolog = new Prolog(undefined, this);
 
 		const prog = await this.prog.record(`tx${this.txid}`); // Record<module, program>
-		for (const [modID, text] of Object.entries(prog)) {
-			// console.log("[LOAD]",this.id, this.txid, modID, "text: ===\n", text);
+		for (const [_modID, text] of Object.entries(prog)) {
+			// console.log("[LOAD]",this.id, this.txid, _modID, "text: ===\n", text);
 			prolog.session.consult(text, {
 				session: prolog.session,
 				reconsult: true,
@@ -105,9 +133,8 @@ export class PrologDO {
 
 		await this.state.blockConcurrencyWhile(async () => {
 			const txid = ++this.txid;
-			console.log("NEW TXID:", txid);
-			this.dirty = false;
 			this.lastmod = Date.now();
+			// console.log("NEW TXID:", txid, this.lastmod);
 			const progs = this.dumpLocal(exclude);
 			await Promise.all([
 				this.prog.putRecord(`tx${txid}`, progs),
@@ -119,6 +146,11 @@ export class PrologDO {
 			]);
 			this.dirty = false;
 		})
+	}
+
+	async destroy() {
+		this.stop();
+		// destroy state
 	}
 
 	dump(): string {
@@ -245,11 +277,13 @@ export class PrologDO {
 		return prog;
 	}
 
-	async run(prog: string | pl.type.State[], chunk?: number, throws = false): Promise<[Query, [pl.type.Term<number, string>, pl.type.Substitution|pl.type.Term<1, "throw/1">][]]> {
-		const query = new Query(this.pl.session, prog);
-		this.queries.set(query.id, query);
+	async run(prog: string | pl.type.State[] | Query, chunk?: number, throws = false): Promise<[Query, Solution[]]> {
+		const query = (prog instanceof Query) ? prog : new Query(this.pl.session, prog);
+		if (!this.queries.has(query.id)) {
+			this.queries.set(query.id, query.job ?? new QueryJob(query));
+		}
 		const answers = query.answer();
-		const results: [pl.type.Term<number, string>, pl.type.Substitution|pl.type.Term<1, "throw/1">][] = [];
+		const results: Solution[] = [];
 		for await (const [goal, answer] of answers) {
 			if (pl.type.is_error(answer)) {
 				console.error(this.pl.session.format_answer(answer));
@@ -271,9 +305,13 @@ export class PrologDO {
 			await this.transact(tx)
 		}
 		if (!query.more()) {
+			// TODO: broadcast something?
 			this.queries.delete(query.id);
 		}
 		await this.save();
+		if (this.onquery) {
+			this.onquery(query.job!, results);
+		}
 		return [query, results];
 	}
 
@@ -397,18 +435,18 @@ export class PrologDO {
 
 	stop(id?: string) {
 		if (!id) {
-			for (const [id, query] of this.queries) {
-				query.stop();
+			for (const [id, job] of this.queries) {
+				job.query.stop();
 				this.queries.delete(id);
 			}
 			return;
 		}
 
-		const query = this.queries.get(id);
-		if (!query) { 
+		const job = this.queries.get(id);
+		if (!job) { 
 			return;
 		}
-		query.stop();
+		job.query.stop();
 		this.queries.delete(id);
 	}
 

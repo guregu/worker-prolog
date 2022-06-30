@@ -44,7 +44,8 @@ Currently **MVP** status. All of the above features work. Persistence is experim
 
 I would love to experiment with **D1 support**, so if you can hook me up with a beta invite please [keep in touch](mailto:greg.roseberry@gmail.com). As crazy as it sounds, I think Prolog would be an extremely viable language for the Cloudflare ecosystem and I'd like to help make first-class Prolog support a reality.
 
-Currently persistence is limited by Durable Object's storage API limits, so the source text or a particular predicate's code cannot exceed 128KB, for example. Hopefully this could be improved by D1.
+~~Currently persistence is limited by Durable Object's storage API limits, so the source text or a particular predicate's code cannot exceed 128KB, for example~~.
+Things get chunked now so there's a workaround, but D1 would still be nice :-).
 
 ## Towards a Semantic Web
 
