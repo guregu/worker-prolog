@@ -24,17 +24,26 @@ export function renderOutput(text: string): HTML {
 export function renderQuery(query: QueryInfo, result?: PengineResponse): HTML {
 	return html`
 	<fieldset class="answer" id="query-${query.id}" ${result?.ask && html`data-ask="${result?.ask}"`}>
-		<legend><span>${(!result || result?.more === true) ? "🤔" : eventEmoji(result)} ${renderTimestamp(new Date(query.date))}</span></legend>
+		<legend>
+			<span>${(!result || result?.more === true) ? "🤔" : eventEmoji(result)} ${renderTimestamp(new Date(query.date))}</span>
+			${result?.more === true && html`
+			<span class="buttons">
+				<button onclick="return send_stop('${query.id}');">🔪 Kill</button>
+			</span>
+			`}
+		</legend>
 		<p class="ask">${query.ask}</p>
-		<blockquote class="output">${query.output}</blockquote>
-		${renderAnswersTable(result)}
+		<div class="result-window">
+			<div class="results">${renderAnswersTable(result)}</div>
+		</div>
+		
 		${result?.more === true && html`
-			<menu>
+			<!-- <menu>
 				<li><button onclick="return send_next('${query.id}', 1);">▶️ Next</button></li>
 				<li><button onclick="return send_next('${query.id}');">⏭️ All</button></li>
 				<li><button onclick="return send_stop('${query.id}');">🔪 Kill</button></li>
-				<!-- <li><button onclick="return send_save('${query.id}');">💾 Save</button></li> -->
-			</menu>
+				<li><button onclick="return send_save('${query.id}');">💾 Save</button></li>
+			</menu> -->
 		`}
 	</fieldset>`;
 }
@@ -116,6 +125,7 @@ function renderAnswersTable(result?: PengineResponse): HTML {
 					${result?.data?.map((x: Record<string, unknown>) => renderAnswerTable(result?.projection!, x))}
 				</tbody>
 			</table>
+			${result?.data?.length > 0 && typeof result.data[0] == "object" && Object.keys(result.data[0]).length === 0 && html`<b class="answer true">yes</b> ${result?.data?.length > 1 && html`(×${result.data.length})`}`}
 		`;
 	case "create":
 		return html``;
@@ -127,9 +137,14 @@ function renderAnswersTable(result?: PengineResponse): HTML {
 }
 
 function renderAnswerTable(projection: string[], x: Record<string, any>): HTML {
+	if (!x) {
+		return html``;
+	}
+
 	const entries = Object.entries(x);
 	if (entries.length == 0) {
-		return html`<b class="answer true">yes</b>&nbsp;`;
+		return html``;
+		// return html`<b class="answer true">yes</b>&nbsp;`;
 	}
 
 	/* eslint-disable indent */

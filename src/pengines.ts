@@ -17,6 +17,26 @@ export type Format = "json" | "prolog" | "json_atom" | "raw";
 export type Command = "create" | "destroy" | "ask" | "next" | "stop" | "ping";
 export type Event = "create" | "destroy" | "success" | "failure" | "error" | "stop" | "ping";
 
+export interface PengineKeys {
+	pid: string;
+	qid?: string;
+}
+
+function parseKeys(id: string): PengineKeys {
+	const idx = id.indexOf("_");
+	if (idx === -1) {
+		return {pid: id};
+	}
+	return {
+		pid: id.slice(0, idx),
+		qid: id.slice(idx+1),
+	}
+}
+
+function queryID(pid: string, query_id: string) {
+	return `${pid}_${query_id}`;
+}
+
 export interface PengineRequest {
 	id: string;
 	query_id: string;
@@ -146,11 +166,21 @@ export class PengineDO extends PrologDO {
 	}
 
 	async exec(id: string, req: Partial<PengineRequest>, start: number, persist: boolean): Promise<PengineReply> {
+		const keys = parseKeys(id);
+		// id = keys.pid;
+		if (keys.qid) {
+			req.query_id = keys.qid;
+			req.next = true;
+		}
+
 		const meta: PengineMetadata = (await this.meta.get()) ?? {src_urls: [], title: ""};
-		const [parentReq, _next] = await this.loadState();
+		
+		// const [parentReq, _next] = await this.loadState();
 
 		if (req.stop) {
-			console.log("TODO: stop", req);	
+			if (req.query_id) {
+				this.stop(req.query_id);
+			}
 			if (persist) {
 				this.save();
 				await this.deleteState();
@@ -168,7 +198,7 @@ export class PengineDO extends PrologDO {
 			}
 			return {
 				event: "destroy",
-				id: id,
+				id: keys.pid,
 				meta: meta,
 			};
 		}
@@ -252,7 +282,7 @@ export class PengineDO extends PrologDO {
 		this.req = req;
 
 		const chunk = req.chunk ?? this.req?.chunk;
-		const ask = (req.query_id && req.next) ? this.queries.get(req.query_id)?.query : req.ask;
+		const ask = (req.query_id && req.next) ? this.queries.get(req.query_id)?.query ?? req.ask : req.ask;
 		if (!ask) {
 			throw "no ask??";
 		}
@@ -263,7 +293,6 @@ export class PengineDO extends PrologDO {
 		const links: pl.type.Substitution[] = [];
 		let projection: pl.type.Term<number, string>[] = [];
 		let queryGoal: pl.type.Value | undefined;
-		let rest: pl.type.State[] = [];
 		for await (const [goal, answer] of answers) {
 			const tmpl: pl.type.Value = req.template ?? goal;
 			if (pl.type.is_error(answer)) {
@@ -306,14 +335,14 @@ export class PengineDO extends PrologDO {
 				throw new Error(`weird answer: %{answer}`);
 			}
 		}
-		rest = query.thread.points;
+		// let rest: pl.type.State[] = query.thread.points;
 		const output = query.output();
 
 		if (persist) {
 			this.meta.put(meta);
 			this.save();
 		}
-		const more = await this.saveState(parentReq ?? req, rest);
+		// const more = await this.saveState(parentReq ?? req, rest);
 
 		const end = Date.now();
 		const time = (end - start) / 1000;
@@ -357,7 +386,7 @@ export class PengineDO extends PrologDO {
 			event.lifecycle = "destroy";
 		}
 
-		if (!parentReq && req.create) {
+		if (!req.next && req.create) {
 			event.lifecycle = "create";
 		}
 
@@ -488,8 +517,8 @@ export class PengineDO extends PrologDO {
 				};
 				const html = await (new HTMLResponse(renderResult(resp, true))).text();
 				this.broadcast("result:" + html);
-				break;
 			}
+			break;
 		case "next":
 			// TODO:
 			if (!job) {
@@ -529,10 +558,26 @@ export class PengineDO extends PrologDO {
 	}
 
 	async broadcastQuery(job: QueryJob, results?: [pl.type.Term<number, string>, pl.type.Substitution|pl.type.Term<1, "throw/1">][]) {
-		// const html = await (new HTMLResponse(
-		// 	renderQuery(job.info())
-		// )).text();
-		// this.broadcast(`query:${job.query.id}:${html}`);
+		const reply: PengineReply = {
+			event: "success",
+			id: this.id,
+			query: job,
+			ask: job.query.ask,
+			results: results?.map(([term, _]) => term),
+			links: results?.map(([_, link]) => link).filter(link => pl.type.is_substitution(link)) as pl.type.Substitution[],
+			more: job.query.more(),
+			time: 0,
+			slave_limit: ARBITRARY_HIGH_NUMBER,
+			output: job.query.output(),
+		}
+		if (reply.links && reply.links.length > 0) {
+			reply.projection = projectionOf(reply.links[0])
+		}
+		const syntheticResult = await formatResponse("json", reply, this.pl).json() as PengineResponse;
+		const html = await (new HTMLResponse(
+			renderQuery(job.info(), syntheticResult),
+		)).text();
+		this.broadcast(`query:${job.query.id}:${html}`);
 	}
 }
 

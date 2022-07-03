@@ -6,6 +6,16 @@ export function engineModule(pl2: typeof pl) {
 	new pl2.type.Module("engine", predicates, ["self/1", "stop/0", "stop/1", "current_query/1", "sleep/1"]);
 }
 
+/*
+	stuff to add
+
+	- cf alarms directive
+		:- schedule(goal, hour(1))?
+	- expose endpoint directive
+		:- expose(goal, json, get('/path'))?
+	- 
+*/
+
 const predicates: Record<string, pl.type.PredicateFn> = {
 	"self/1": self1,
 	"current_query/1": current_query1,

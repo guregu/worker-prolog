@@ -4,10 +4,13 @@ import { renderDescription, renderQuery, renderResult } from "./result";
 import { socketJS, texteditJS } from "./scripts";
 import { favicon, indexStyle } from "./style";
 
+import _fizzbuzz from "./examples/fizzbuzz.pl";
+import { terminalJS } from "./terminal";
+
 const EXAMPLE_QUERIES: [string, string][] = [
 	["", "permutation(\"dog\", Word)."],
 	["% https://en.wikipedia.org/wiki/Syllogism\n\nhuman(socrates).\nmortal(X) :- human(X).", "mortal(X)."],
-	["fizzbuzz(N, Max) :- \n	N =< Max,\n	findall(_, say(N), _), nl,\n	succ(N, N1),\n	fizzbuzz(N1, Max).\nfizzbuzz(N, Max) :- succ(Max, N).\n\nsay(N) :- 0 is N mod 3, write('fizz').\nsay(N) :- 0 is N mod 5, write('buzz').\nsay(N) :-\n	X is N mod 3,\n	X \\= 0,\n	Y is N mod 5,\n	Y \\= 0,\n	write(N).\n\n% ?- fizzbuzz(1, 15)", "fizzbuzz(1, 15)."],
+	[_fizzbuzz, "fizzbuzz(1, 15)."],
 	["", "between(1, 32, N), Square is N^2, Cube is N^3."],
 	["% http://www.tau-prolog.org/documentation#js\n% https://github.com/tau-prolog/tau-prolog/issues/299\n:- use_module(library(js)).\n", "json_prolog(_JS, [a, [x-[yes-{true}, no-{false}, '$1b mistake'-{null}]], [hello-prolog, born-1972]]), json_atom(_JS, JSON)."],
 	["% https://www.j-paine.org/dobbs/prolog_lightbulb.html\n\nchange_lightbulb(1, porlog_programmer).", "change_lightbulb(HowMany, prolog_programmer)."],
@@ -47,6 +50,7 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 				<meta property="og:title" content="${title}"> 
 				<meta property="og:description" content="${desc}"> 
 				<meta name="twitter:card" content="summary_large_image">
+				<link rel="stylesheet" href="https://esm.sh/xterm/css/xterm.css">
 			</head>
 			<body>
 				<header>
@@ -73,13 +77,15 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 					</details>
 				</section>`}
 
-				<section id="src">
-					<div class="growtext">
-						<div class="spacer" aria-hidden="true">${src_text}</div>
+				<section id="src" class="editor">
+					<div>
 						<textarea id="src_text" name="src_text" form="query-form"
 							class="${src_text && "loaded"}" spellcheck="false"
 							placeholder="% Prolog code goes here">${src_text}</textarea>
 					</div>
+					
+					<div id="terminal"></div>
+					
 				</section>
 
 				<section id="query">
@@ -97,14 +103,17 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 
 				<section id ="jobs">
 					<!-- ${jobs && renderQuery(query)} -->
-					${result?.state?.queries && Object.values(result.state.queries).map((q: QueryInfo) => {
+					<!-- ${result?.state?.queries && Object.values(result.state.queries).map((q: QueryInfo) => {
 						return renderQuery(q);
-					})}
+					})} -->
 				</section>
 
 				<section id="results">
-					${(!result || result.event == "create") && renderWelcome()}
 					${result && result.event !== "create" && renderResult(result)}
+					${result?.state?.queries && Object.values(result.state.queries).map((q: QueryInfo) => {
+						return renderQuery(q);
+					})}
+					${(!result || result.event == "create") && renderWelcome()}
 				</section>
 
 				<br>
@@ -179,7 +188,7 @@ function send(event, ask, src_text, replace) {
 		src_text: src_text || document.getElementById("src_text").value || undefined,
 		src_url: document.getElementById("src_url")?.value || undefined,
 		application: "${application}",
-		chunk: 1,
+		// chunk: 1,
 	};
 	var url = new URL(document.URL);
 	url.pathname = "/id/${application && html`${application}:`}${id}";
@@ -230,6 +239,30 @@ function setAsk(txt) {
 
 const socket = new Socket(location.host + "/pengine/?id=${id}", {cmd: "greetings"});
 
+const RESULTS = document.getElementById("results");
+const WELCOME = document.getElementById("welcome");
+
+function insertEvent(html, replaceID) {
+	if (typeof WECLOME !== "undefined") {
+		RESULTS.innerHTML = html;
+		WELCOME = undefined;
+		return;
+	}
+
+	if (replaceID) {
+		const elem = document.getElementById(replaceID);
+		if (elem) {
+			elem.outerHTML = html;
+			return;
+		}
+	}
+
+	RESULTS.insertAdjacentHTML("afterbegin", html);
+}
+function gotQuery() {
+	QUERY_SUBMIT.value = "Query";
+}
+
 // TODO
 socket.handle("_____result", function(msg) {
 	var box = document.getElementById("results");
@@ -238,23 +271,15 @@ socket.handle("_____result", function(msg) {
 	} else {
 		box.insertAdjacentHTML("afterbegin", msg);
 	}
-	QUERY_SUBMIT.value = "Query";
-	refreshExamples();
+	gotQuery();
 });
 
 socket.handle("query", function(msg) {
 	const idx = msg.indexOf(":");
 	const id = msg.slice(0, idx);
 	const html = msg.slice(idx+1);
-
-	const elem = document.getElementById("query-" + id);
-	if (elem) {
-		elem.outerHTML = html;
-		return;
-	}
-
-	let box = document.getElementById("jobs");
-	box.insertAdjacentHTML("afterbegin", html);
+	insertEvent(html, "query-" + id);
+	gotQuery();
 });
 
 socket.handle("src_text", function(txt) {
@@ -267,13 +292,15 @@ socket.handle("src_text", function(txt) {
 });
 
 socket.handle("stdout", function(msg) {
-	var box = document.getElementById("results");
-	box.insertAdjacentHTML("afterbegin", msg);
+	if (window.term) { 
+		window.term.write(msg);
+	}
 });
 
 socket.connect();
 
 				</script>
+				${terminalJS}
 			</body>
 		</html>
 	`;

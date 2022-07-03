@@ -143,8 +143,31 @@ export const indexStyle = html`
 		}
 
 		#src {
+			display: flex;
+			justify-content: space-between;
+			column-gap: 1em;
+			flex-wrap: wrap;
+			/* overflow: auto; */
+		}
+
+		#src > * {
+			flex: 1;
+			max-width: max(49vw, calc(100% - 8px));
 			max-height: 50vh;
-			overflow-y: auto;
+			min-height: max(30vh, 20em);
+			display: flex;
+			flex-direction: column;
+		}
+
+		#src textarea {
+			flex: 1;
+			width: 100%;
+			/* height: calc(100% - 6px); */
+		}
+
+		#src > #terminal {
+			display: block;
+			background: black;
 		}
 
 		input, textarea, .growtext .spacer {
@@ -154,6 +177,9 @@ export const indexStyle = html`
 
 		fieldset.answer {
 			border: 1px solid lightgrey;
+			max-height: 50vh;
+			max-width: 90vw;
+			overflow: auto;
 		}
 
 		.answer p.ask {
@@ -169,6 +195,14 @@ export const indexStyle = html`
 			text-decoration: underline;
 		}
 
+		.answer .result-window {
+			display: flex;
+			flex-wrap: wrap;
+		}	
+		.answer .result-window > * {
+			flex: 1;
+		}	
+
 		.answer menu {
 			display: flex;
 			list-style: none;
@@ -176,6 +210,10 @@ export const indexStyle = html`
 			margin-top: 0;
 			margin-bottom: 0;
 			column-gap: 0.3em;
+		}
+
+		legend span.buttons {
+			margin-left: 0.1em;
 		}
 
 		/* .answer menu li {
@@ -216,6 +254,7 @@ export const indexStyle = html`
 			overflow: auto;
 			word-break: keep-all;
 			overflow-wrap: normal;
+			max-width: 80vw;
 		}
 		blockquote.output:empty {
 			display: none;

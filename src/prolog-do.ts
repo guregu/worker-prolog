@@ -7,6 +7,7 @@ import { Store } from "./unholy";
 import { renderOutput } from "./views/result";
 
 const TX_CHUNK_SIZE = 25;
+const QUERY_FLUSH_INTERVAL = 1500; // milliseconds
 
 export type Solution = [pl.type.Term<number, string>, pl.type.Substitution|pl.type.Term<1, "throw/1">];
 
@@ -111,9 +112,10 @@ export class PrologDO {
 			if (text == "") {
 				return;
 			}
-			(new HTMLResponse(renderOutput(text))).text().then((html) => {
-				this.broadcast("stdout:" + html);
-			});
+			// (new HTMLResponse(renderOutput(text))).text().then((html) => {
+			// 	this.broadcast("stdout:" + html);
+			// });
+			this.broadcast("stdout:"+text);
 		};
 		prolog.session.streams["stdout"] = newStream("stdout", undefined, (buf: string) => {
 			notify(buf);
@@ -282,8 +284,10 @@ export class PrologDO {
 		if (!this.queries.has(query.id)) {
 			this.queries.set(query.id, query.job ?? new QueryJob(query));
 		}
+		// TODO: emit some kind of query created msg
 		const answers = query.answer();
 		const results: Solution[] = [];
+		let lastFlush = 0;
 		for await (const [goal, answer] of answers) {
 			if (pl.type.is_error(answer)) {
 				console.error(this.pl.session.format_answer(answer));
@@ -294,7 +298,16 @@ export class PrologDO {
 			} else if (pl.type.is_substitution(answer)) {
 				results.push([goal, answer as pl.type.Substitution]);
 			}
-			
+
+			query.flush();
+
+			if (!chunk && this.onquery) {
+				const now = Date.now();
+				if (now - lastFlush >= QUERY_FLUSH_INTERVAL) {
+					this.onquery(query.job!, results);
+					lastFlush = now;
+				}
+			}
 			if (chunk && results.length == chunk) {
 				break;
 			}
@@ -309,7 +322,7 @@ export class PrologDO {
 			this.queries.delete(query.id);
 		}
 		await this.save();
-		if (this.onquery) {
+		if (chunk && this.onquery) {
 			this.onquery(query.job!, results);
 		}
 		return [query, results];

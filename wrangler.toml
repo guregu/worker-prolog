@@ -2,6 +2,12 @@ name = "prolog-test"
 main = "src/index.ts"
 compatibility_date = "2022-05-14"
 
+[[rules]]
+    # prolog files
+    type = "Text"
+    globs = ["**/*.pl"]
+    fallthrough = true
+
 [[durable_objects.bindings]]
     # The name of the binding used to refer to the Durable Object
     name = "PROLOG_DO"

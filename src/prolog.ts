@@ -1,6 +1,9 @@
+import { QueryJob, Solution } from "./prolog-do";
 import pl from "tau-prolog";
+// tau modules:
 import plLists from "tau-prolog/modules/lists";
 import plChrs from "tau-prolog/modules/charsio";
+// import plDOM from "tau-prolog/modules/dom"; // TODO: seems to explode cloudflare workers
 import plJS from "tau-prolog/modules/js";
 import plRand from "tau-prolog/modules/random";
 import plStats from "tau-prolog/modules/statistics";
@@ -9,10 +12,12 @@ import { betterJSON } from "./modules/json";
 import { transactions, linkedModules } from "./modules/tx";
 import { fetchModule } from "./modules/fetch";
 import { engineModule } from "./modules/engine";
-import { QueryJob, Solution } from "./prolog-do";
+// prolog modules:
+import moduleTTY from "./modules/tty.pl";
 
 plLists(pl);
 plChrs(pl);
+// plDOM(pl);
 plJS(pl);
 plRand(pl);
 plStats(pl);
@@ -23,10 +28,41 @@ transactions(pl);
 linkedModules(pl);
 fetchModule(pl);
 
-export const DEFAULT_MODULES = ["lists", "js", "format", "charsio", "engine"];
-export const SYSTEM_MODULES = ["system", "engine"];
-// Heavily inspired by yarn/berry
+export const DEFAULT_MODULES = ["lists", "js", "format", "charsio", "engine", "tty"];
+export const SYSTEM_MODULES = ["system", "user"];
+// TODO: pre-parse all of these?
 
+export const PROLOG_LIBRARIES: Record<string, {src: string, mod?: pl.type.Module}> = {
+	"tty": {
+		src: moduleTTY,
+	},
+};
+
+{
+	const prolog = pl.create();
+	// const wait: Promise<void>[] = [];
+	for (const [id, lib] of Object.entries(PROLOG_LIBRARIES)) {
+		prolog.modules[id] = new pl.type.Module(id, {}, [], {});
+		prolog.consult(lib.src, {
+			session: prolog,
+			context_module: id,
+		});
+		const mod = prolog.modules[id];
+		delete mod.modules[id]; // TODO: idk why this happens
+		mod.is_library = true;
+		pl.modules[id] = mod;
+		// delete prolog.modules[id].modules.user;
+		console.log("loaded", id);
+		lib.mod = prolog.modules[id];
+		console.log("loaded pl mod:", id, lib.mod);
+		// wait.push(prolog.consult(src, {
+		// 	options: {}
+		// }));
+	}
+}
+
+
+// Heavily inspired by yarn/berry
 export class Prolog {
 	public session: pl.type.Session;
 	public parent: pl.Pengine;
@@ -42,6 +78,12 @@ export class Prolog {
 		if (source) {
 			this.consult(source);
 		}
+		// // TODO: load these on demand instead
+		// for (const [id, lib] of Object.entries(PROLOG_LIBRARIES)) {
+		// 	if (pl.type.is_module(lib.mod)) {
+		// 		this.session.modules[id] = lib.mod;
+		// 	}
+		// }
 	}
 
 	public async consult(src: string, options: {success?: () => void, error?: (err: pl.type.Term<1, "throw/1">) => void, [k: string]: unknown} = {}) {
@@ -254,8 +296,11 @@ export class Query {
 		this.thread.throw_error(atom("stop"));
 	}
 
-	public output(): string {
+	public flush() {
 		this.stream.flush();
+	}
+
+	public output(): string {
 		return this.outputs.join("");
 	}
 
@@ -264,7 +309,6 @@ export class Query {
 	}
 
 	public more(): boolean {
-		console.log("more? ", this.thread.points);
 		return this.thread.points.length > 0;
 	}
 }

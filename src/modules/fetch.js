@@ -38,6 +38,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 export function fetchModule(pl) {
+	// TODO: add fetch/5(?) with status code -Value
+	// TODO: support html? https://developers.cloudflare.com/workers/runtime-apis/html-rewriter/
+
 	pl.modules.js.rules["ajax/4"] = function( thread, point, atom ) {
 		var method = atom.args[0], url = atom.args[1], value = atom.args[2], options = atom.args[3];
 		if(pl.type.is_variable(url) || pl.type.is_variable(method) || pl.type.is_variable(options)) {
@@ -203,7 +206,7 @@ export function fetchModule(pl) {
 					term = pl.fromJavaScript.apply(await resp.json());
 				} else {
 					// TODO: DOM
-					term = new pl.type.Type(await resp.text(), []);
+					term = new pl.type.Term(await resp.text(), []);
 				}
 				console.log("fetched", url.id, term);
 				thread.prepend([
