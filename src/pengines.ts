@@ -558,7 +558,8 @@ export class PengineDO extends PrologDO {
 	}
 
 	async broadcastQuery(job: QueryJob, results?: [pl.type.Term<number, string>, pl.type.Substitution|pl.type.Term<1, "throw/1">][]) {
-		const reply: PengineReply = {
+		const err = results?.find(([_, answer]) => { return pl.type.is_error(answer); });
+		const reply: PengineReply = !err ? {
 			event: "success",
 			id: this.id,
 			query: job,
@@ -567,6 +568,14 @@ export class PengineDO extends PrologDO {
 			links: results?.map(([_, link]) => link).filter(link => pl.type.is_substitution(link)) as pl.type.Substitution[],
 			more: job.query.more(),
 			time: 0,
+			slave_limit: ARBITRARY_HIGH_NUMBER,
+			output: job.query.output(),
+		} : {
+			event: "error",
+			id: this.id,
+			query: job,
+			ask: job.query.ask,
+			error: err,
 			slave_limit: ARBITRARY_HIGH_NUMBER,
 			output: job.query.output(),
 		}

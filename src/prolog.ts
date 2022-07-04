@@ -39,13 +39,16 @@ export const PROLOG_LIBRARIES: Record<string, {src: string, mod?: pl.type.Module
 };
 
 {
-	const prolog = pl.create();
 	// const wait: Promise<void>[] = [];
 	for (const [id, lib] of Object.entries(PROLOG_LIBRARIES)) {
+		const prolog = pl.create();
 		prolog.modules[id] = new pl.type.Module(id, {}, [], {});
 		prolog.consult(lib.src, {
 			session: prolog,
 			context_module: id,
+			error: (err) => {
+				throw err;
+			}
 		});
 		const mod = prolog.modules[id];
 		delete mod.modules[id]; // TODO: idk why this happens
@@ -53,7 +56,7 @@ export const PROLOG_LIBRARIES: Record<string, {src: string, mod?: pl.type.Module
 		pl.modules[id] = mod;
 		// delete prolog.modules[id].modules.user;
 		console.log("loaded", id);
-		lib.mod = prolog.modules[id];
+		lib.mod = mod;
 		console.log("loaded pl mod:", id, lib.mod);
 		// wait.push(prolog.consult(src, {
 		// 	options: {}

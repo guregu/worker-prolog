@@ -10,7 +10,7 @@ tty_clear :-
 	!.
 
 tty_at(X/Y) :-
-	tty_write_ansi([at(X/Y)]).
+	tty_write_ansi(at(X/Y)).
 
 tty_write(Atom) :- tty_write(Atom, []).
 
@@ -31,7 +31,6 @@ tty_write_ansi(Arg) :-
 
 ansi(clear, '\x1B\[2J').
 ansi(reset, '\x1B\[0m').
-
 ansi(at(X/Y), Out) :- atomic_list_concat(['\x1B\[', Y, ';', X, 'H'], Out).
 ansi(fg(N), Out) :- atomic_list_concat(['\x1B\[', 38, ';', 5, ';', N, 'm'], Out).
 ansi(fg(R, G, B), Out) :- atomic_list_concat(['\x1B\[', 38, ';', 2, ';', R, ';', G, ';', B, 'm'], Out).
