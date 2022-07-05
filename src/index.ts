@@ -135,7 +135,7 @@ async function handleWeb(env: Env, request: Request, app: string, id: string, st
 		return new HTMLResponse(content);	
 	}
 
-	const content = renderIndex(sandbox, url.searchParams, result);
+	const content = renderIndex(sandbox, url.searchParams, result, url.pathname === "/");
 	return new HTMLResponse(content);
 }
 

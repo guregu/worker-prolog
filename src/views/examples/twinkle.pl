@@ -5,8 +5,8 @@ clear :- tty_clear.
 
 twinkle(Glyph, Delay) :-
 	repeat,
-	random(1, 200, X),
-	random(1, 1, Y),
+	random(1, 80, X),
+	random(1, 20, Y),
 	tty_at(X/Y), write(Glyph),
 	sleep(Delay).
 

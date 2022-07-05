@@ -16,7 +16,7 @@ const EXAMPLE_QUERIES: [string, string][] = [
 	["% https://www.j-paine.org/dobbs/prolog_lightbulb.html\n\nchange_lightbulb(1, porlog_programmer).", "change_lightbulb(HowMany, prolog_programmer)."],
 ];
 
-export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: PengineResponse) {
+export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: PengineResponse, isIndex?: boolean) {
 	const meta = result?.meta ?? result?.answer?.meta ?? result?.data?.meta;
 	const src_text = result?.meta?.src_text ?? result?.answer?.meta?.src_text ?? result?.data?.meta?.src_text;
 	const application = result?.meta?.application ?? result?.answer?.meta?.application ?? result?.data?.meta?.application;
@@ -113,7 +113,7 @@ export function renderIndex(sandbox: boolean, params: URLSearchParams, result?: 
 					${result?.state?.queries && Object.values(result.state.queries).map((q: QueryInfo) => {
 						return renderQuery(q);
 					})}
-					${(!result || result.event == "create") && renderWelcome()}
+					${(isIndex === true) && renderWelcome()}
 				</section>
 
 				<br>
