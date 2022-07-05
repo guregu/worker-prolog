@@ -14,22 +14,13 @@ export const terminalJS = html`
 	import xterm from "https://esm.sh/xterm";
 	import fitpkg from "https://esm.sh/xterm-addon-fit";
 
-	console.log("fit", fitpkg.FitAddon);
-
-	function cols() {
-		return Math.floor(window.innerWidth/16 * 4/5);
-	}
-	function rows() {
-		return Math.floor(window.innerHeight/16 * 2/5);
-	}
-
 	const elem = document.getElementById('terminal');
 	if (elem) {
 		initTerm(elem);
 	}
 
 	function initTerm(elem) {
-		const term = new xterm.Terminal({convertEol: true, cols: cols(), rows: rows()});
+		const term = new xterm.Terminal({convertEol: true});
 		const fitter = new fitpkg.FitAddon();
 		term.loadAddon(fitter);
 		term.open(elem);
