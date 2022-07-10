@@ -5,12 +5,15 @@ import { socketJS, texteditJS } from "./scripts";
 import { favicon, indexStyle } from "./style";
 
 import _fizzbuzz from "./examples/fizzbuzz.pl";
+import _surf from "./examples/surf.pl";
+
 import { terminalJS } from "./terminal";
 
 const EXAMPLE_QUERIES: [string, string][] = [
 	["", "permutation(\"dog\", Word)."],
 	["% https://en.wikipedia.org/wiki/Syllogism\n\nhuman(socrates).\nmortal(X) :- human(X).", "mortal(X)."],
 	[_fizzbuzz, "fizzbuzz(1, 15)."],
+	[_surf, "surf."],
 	["", "between(1, 32, N), Square is N^2, Cube is N^3."],
 	["% http://www.tau-prolog.org/documentation#js\n% https://github.com/tau-prolog/tau-prolog/issues/299\n:- use_module(library(js)).\n", "json_prolog(_JS, [a, [x-[yes-{true}, no-{false}, '$1b mistake'-{null}]], [hello-prolog, born-1972]]), json_atom(_JS, JSON)."],
 	["% https://www.j-paine.org/dobbs/prolog_lightbulb.html\n\nchange_lightbulb(1, porlog_programmer).", "change_lightbulb(HowMany, prolog_programmer)."],
@@ -322,7 +325,8 @@ function renderWelcome(): HTML {
 		</ul>
 		<h3>Documentation</h3>
 		<ul>
-			<li><a href="http://www.tau-prolog.org/documentation" target="_blank">Tau Prolog reference</a></li>
+			<li><a href="http://www.tau-prolog.org/documentation" target="_blank">Tau Prolog reference</a></li>.
+			<li><a href="https://github.com/guregu/worker-prolog/blob/master/src/modules/README.md" target="_blank">worker-prolog module reference (engine, tty)</a></li>
 			<li><a href="https://www.swi-prolog.org/pldoc/doc_for?object=section(%27packages/pengines.html%27)" target="_blank">Pengines (RPC) API reference</a></li>
 		</ul>
 		<h3>Learn Prolog</h3>

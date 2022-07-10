@@ -7,6 +7,8 @@ import { renderApplication } from "./views/app";
 import { renderIndex } from "./views/index";
 import { renderResult } from "./views/result";
 
+import _workerJS from "./worker.js.txt"
+
 export interface Env {
 	PROLOG_DO: DurableObjectNamespace;
 	PENGINES_APP_DO: DurableObjectNamespace;
@@ -35,6 +37,8 @@ export default {
 		case "/favicon.ico":
 		case "/robots.txt":
 			return new Response("no", { status: 404 });
+		case "/worker.js":
+			return new Response(_workerJS, {headers: {"Content-Type": "text/javascript"}});
 		}
 
 		if (request.method == "OPTIONS") {

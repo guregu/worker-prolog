@@ -483,6 +483,12 @@ export function serializeTerm(term: pl.type.Value, sesh?: Prolog): string | numb
 			"args": ["object"],
 		};
 	}
+	if (pl.type.is_dict(term)) {
+		return {
+			"functor": "<dict>",
+			"args": [term.toString({session: sesh?.session})], // TODO!
+		};
+	}
 	if (Array.isArray(term?.args)) {
 		return {
 			"functor": term.id,

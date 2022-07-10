@@ -208,7 +208,6 @@ export function fetchModule(pl) {
 					// TODO: DOM
 					term = new pl.type.Term(await resp.text(), []);
 				}
-				console.log("fetched", url.id, term);
 				thread.prepend([
 					new pl.type.State(
 						point.goal.replace(new pl.type.Term("=", [value, term])),

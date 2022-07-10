@@ -12,6 +12,8 @@ import { betterJSON } from "./modules/json";
 import { transactions, linkedModules } from "./modules/tx";
 import { fetchModule } from "./modules/fetch";
 import { engineModule } from "./modules/engine";
+import { dictModule } from "./modules/dict";
+
 // prolog modules:
 import moduleTTY from "./modules/tty.pl";
 
@@ -27,6 +29,7 @@ engineModule(pl);
 transactions(pl);
 linkedModules(pl);
 fetchModule(pl);
+dictModule(pl);
 
 export const DEFAULT_MODULES = ["lists", "js", "format", "charsio", "engine", "tty"];
 export const SYSTEM_MODULES = ["system", "user"];
@@ -372,7 +375,7 @@ export function toProlog(x: any): pl.type.Value {
 			return new pl.type.Term("{}", [new pl.type.Term("null", [])]);
 		}
 
-		if (pl.type.is_term(x) || pl.type.is_number(x) || pl.type.is_variable(x) || pl.type.is_js_object(x)) {
+		if (pl.type.is_term(x) || pl.type.is_number(x) || pl.type.is_variable(x) || pl.type.is_js_object(x) || pl.type.is_dict(x)) {
 			return x;
 		}
 		
@@ -388,7 +391,7 @@ export function toProlog(x: any): pl.type.Value {
 
 		// hail mary
 		console.warn("UNKNOWN TERM???", x);
-		return functor("???", `${x}`);
+		return functor("???", `${x.toString({quoted: true})}`);
 	}
 }
 

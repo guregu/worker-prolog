@@ -270,12 +270,12 @@ export class PrologDO {
 			rules
 		*/
 		for (let rs of Object.values(mod.rules)) {
-			rs = Array.from(rs);
-			if (rs[Symbol.iterator] !== "function") {
-				console.log("WTF", rs, "???", rs[Symbol.iterator]);
-				continue;
-			}
-			for (const r of Array.from(rs)) {
+			// rs = Array.from(rs);
+			// if (rs[Symbol.iterator] !== "function") {
+			// 	console.log("WTF", rs, "???", rs[Symbol.iterator]);
+			// 	continue;
+			// }
+			for (const r of rs) {
 				const rule = r;
 				prog += rule.toString(opts) + "\n";
 			}
@@ -544,7 +544,9 @@ export class PrologDO {
 			}
 		});
 		const mod = this.pl.session.modules[appID];
-		mod.is_library = true;
+		if (mod) { mod.is_library = true; } else {
+			console.warn("no mod?", appID);
+		}
 		return mod;
 	}
 
