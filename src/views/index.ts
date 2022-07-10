@@ -15,6 +15,7 @@ const EXAMPLE_QUERIES: [string, string][] = [
 	[_fizzbuzz, "fizzbuzz(1, 15)."],
 	[_surf, "surf."],
 	["", "between(1, 32, N), Square is N^2, Cube is N^3."],
+	["", "tty_write('im lovin it', [at(10/5), fg(3), bg(1), bold])."],
 	["% http://www.tau-prolog.org/documentation#js\n% https://github.com/tau-prolog/tau-prolog/issues/299\n:- use_module(library(js)).\n", "json_prolog(_JS, [a, [x-[yes-{true}, no-{false}, '$1b mistake'-{null}]], [hello-prolog, born-1972]]), json_atom(_JS, JSON)."],
 	["% https://www.j-paine.org/dobbs/prolog_lightbulb.html\n\nchange_lightbulb(1, porlog_programmer).", "change_lightbulb(HowMany, prolog_programmer)."],
 ];
